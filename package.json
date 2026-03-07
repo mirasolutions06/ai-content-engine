@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "start": "tsx src/cli/run-pipeline.ts",
     "new-project": "tsx src/cli/new-project.ts",
     "pipeline": "tsx src/cli/run-pipeline.ts",
     "remotion": "remotion studio",

@@ -9,6 +9,7 @@ import type {
   DirectorPlan,
   DirectorClipPlan,
   DirectorCacheEntry,
+  BrandContext,
 } from '../types/index.js';
 
 const MODEL = 'claude-sonnet-4-6';
@@ -100,6 +101,39 @@ async function saveToCache(cachePath: string, plan: DirectorPlan): Promise<void>
   };
   await fs.ensureDir(path.dirname(cachePath));
   await fs.outputJson(cachePath, entry, { spaces: 2 });
+}
+
+// ── Brand context export ─────────────────────────────────────────────────────
+
+async function saveBrandContext(
+  plan: DirectorPlan,
+  config: VideoConfig,
+  projectsRoot: string,
+  projectName: string,
+): Promise<void> {
+  const contextPath = path.join(projectsRoot, projectName, 'cache', 'brand-context.json');
+  const context: BrandContext = {
+    brandName: config.client ?? config.title,
+    tone: plan.visualStyleSummary,
+    visualStyle: plan.visualStyleSummary,
+    hookText: plan.suggestedHookText ?? config.hookText ?? '',
+    cta: plan.suggestedCta?.text ?? config.cta?.text ?? '',
+    targetAudience: '',
+    scenes: plan.clips.map((c) => ({
+      index: c.sceneIndex,
+      prompt: config.clips[c.sceneIndex - 1]?.prompt ?? '',
+      enrichedPrompt: c.enrichedPrompt,
+      mood: `${c.lighting}, ${c.colorGrade}`,
+    })),
+    voiceSettings: {
+      stability: plan.voice.stability,
+      style: plan.voice.style,
+      similarityBoost: plan.voice.similarityBoost,
+      toneDescription: `stability=${plan.voice.stability}, style=${plan.voice.style}`,
+    },
+  };
+  await fs.outputJson(contextPath, context, { spaces: 2 });
+  logger.info('Director: brand context saved to cache/brand-context.json');
 }
 
 // ── Reference image encoding ──────────────────────────────────────────────────
@@ -236,6 +270,7 @@ export async function runDirector(
   const cached = await loadCached(cachePath, configHash);
   if (cached !== null) {
     logger.skip(`Director: using cached plan (hash: ${configHash})`);
+    await saveBrandContext(cached, config, projectsRoot, projectName);
     logDirectorPlan(cached);
     return cached;
   }
@@ -300,6 +335,7 @@ export async function runDirector(
     const plan = normalizePlan(parsed, config, configHash);
 
     await saveToCache(cachePath, plan);
+    await saveBrandContext(plan, config, projectsRoot, projectName);
     logDirectorPlan(plan);
 
     return plan;

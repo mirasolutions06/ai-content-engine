@@ -1,12 +1,30 @@
+import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs-extra';
 import { ElevenLabsClient } from 'elevenlabs';
 import { logger } from '../utils/logger.js';
 import type { ElevenLabsOptions } from '../types/index.js';
 
+// ── Hash-based caching ──────────────────────────────────────────────────────
+
+function hashVoiceRequest(script: string, options: ElevenLabsOptions): string {
+  const payload = JSON.stringify({
+    script,
+    voiceId: options.voiceId,
+    stability: options.stability ?? 0.5,
+    similarityBoost: options.similarityBoost ?? 0.75,
+    style: options.style ?? 0,
+    modelId: options.modelId ?? 'eleven_multilingual_v2',
+  });
+  return crypto.createHash('sha256').update(payload).digest('hex').slice(0, 16);
+}
+
+// ── Main export ─────────────────────────────────────────────────────────────
+
 /**
  * Generates a voiceover MP3 using ElevenLabs text-to-speech.
- * Idempotent — skips generation if the output file already exists.
+ * Uses content-hash caching: script + voice settings are hashed to detect
+ * when regeneration is needed even if other config fields changed.
  *
  * @param script - Narration text
  * @param options - Voice ID and generation settings
@@ -21,7 +39,19 @@ export async function generateVoiceover(
   projectName: string,
 ): Promise<string> {
   const outputPath = path.join(projectsRoot, projectName, 'output/audio/voiceover.mp3');
+  const cacheDir = path.join(projectsRoot, projectName, 'cache');
+  const hash = hashVoiceRequest(script, options);
+  const cachedPath = path.join(cacheDir, `voiceover-${hash}.mp3`);
 
+  // Check hash-based cache first
+  if (await fs.pathExists(cachedPath)) {
+    logger.skip(`Voiceover cache hit (hash: ${hash}) — copying to output.`);
+    await fs.ensureDir(path.dirname(outputPath));
+    await fs.copy(cachedPath, outputPath);
+    return outputPath;
+  }
+
+  // Backward compatibility: check if output exists from a pre-hash run
   if (await fs.pathExists(outputPath)) {
     logger.skip(`Voiceover already exists: ${outputPath}`);
     return outputPath;
@@ -60,6 +90,11 @@ export async function generateVoiceover(
     writeStream.on('error', reject);
     audioStream.on('error', reject);
   });
+
+  // Save to hash-based cache for future runs
+  await fs.ensureDir(cacheDir);
+  await fs.copy(outputPath, cachedPath);
+  logger.info(`Voiceover cached as voiceover-${hash}.mp3`);
 
   logger.success(`Voiceover saved: ${outputPath}`);
   return outputPath;

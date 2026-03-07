@@ -38,21 +38,25 @@ export function validateConfig(config: VideoConfig): void {
     throw new Error(`config.json is missing "title".`);
   }
 
-  if (!Array.isArray(config.clips) || config.clips.length === 0) {
-    throw new Error(
-      `config.json "clips" array is empty. ` +
-      `Add at least one clip with a "prompt" or "imageReference".`,
-    );
-  }
-
-  for (let i = 0; i < config.clips.length; i++) {
-    const clip = config.clips[i];
-    if (!clip) throw new Error(`clips[${i}] is undefined`);
-    if (!clip.prompt && !clip.imageReference && !clip.url) {
+  // brand-images mode does not require clips
+  const mode = config.mode ?? 'video';
+  if (mode !== 'brand-images') {
+    if (!Array.isArray(config.clips) || config.clips.length === 0) {
       throw new Error(
-        `clips[${i}] has no "prompt", "imageReference", or "url". ` +
-        `Each clip needs at least one of these.`,
+        `config.json "clips" array is empty. ` +
+        `Add at least one clip with a "prompt" or "imageReference".`,
       );
+    }
+
+    for (let i = 0; i < config.clips.length; i++) {
+      const clip = config.clips[i];
+      if (!clip) throw new Error(`clips[${i}] is undefined`);
+      if (!clip.prompt && !clip.imageReference && !clip.url) {
+        throw new Error(
+          `clips[${i}] has no "prompt", "imageReference", or "url". ` +
+          `Each clip needs at least one of these.`,
+        );
+      }
     }
   }
 

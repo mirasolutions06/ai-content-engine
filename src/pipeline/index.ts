@@ -5,6 +5,8 @@ import { selectComposition, renderMedia } from '@remotion/renderer';
 import { fileURLToPath } from 'url';
 import { logger } from '../utils/logger.js';
 import { validateConfig, validateEnv } from '../utils/validate.js';
+import { validatePrompts } from '../utils/prompt-validator.js';
+import { CostTracker } from '../utils/cost-tracker.js';
 import { AssetLoader } from './assets.js';
 import { generateVoiceover } from './elevenlabs.js';
 import { transcribeAudio } from './whisper.js';
@@ -14,7 +16,9 @@ import { AirtableLogger } from './airtable.js';
 import { runDirector } from './director.js';
 import { generateStoryboardFrame } from './storyboard.js';
 import { getFormatMeta } from '../remotion/helpers/timing.js';
-import type { VideoConfig, VideoGenOptions, CaptionWord } from '../types/index.js';
+import { generateBrandImages } from './brand-images.js';
+import { sourceAssets } from './asset-sourcer.js';
+import type { VideoConfig, VideoGenOptions, CaptionWord, RunOptions, PipelineResult } from '../types/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECTS_ROOT = path.resolve(process.cwd(), 'projects');
@@ -47,18 +51,11 @@ const FORMAT_TO_COMPOSITION: Record<string, string> = {
  * 7. Package final video with timestamp
  *
  * @param projectName - Folder name under projects/
- * @returns Absolute path to the final rendered MP4
+ * @returns Absolute path to the final rendered MP4, or PipelineResult for --json-output
  */
-export async function runPipeline(projectName: string, runOpts?: { storyboardOnly?: boolean }): Promise<string> {
+export async function runPipeline(projectName: string, runOpts?: RunOptions): Promise<string | PipelineResult> {
   const projectDir = path.join(PROJECTS_ROOT, projectName);
-
-  // ── Environment validation ──────────────────────────────────────────────
-  validateEnv(['FAL_KEY', 'ELEVENLABS_API_KEY', 'OPENAI_API_KEY']);
-
-  // ── Airtable run tracking ───────────────────────────────────────────────
-  const airtable = new AirtableLogger();
-  let airtableRecordId: string | null = null;
-  const startTime = Date.now();
+  const dryRun = runOpts?.dryRun === true;
 
   // ── Config loading ──────────────────────────────────────────────────────
   const configPath = path.join(projectDir, 'config.json');
@@ -72,8 +69,81 @@ export async function runPipeline(projectName: string, runOpts?: { storyboardOnl
   let config = (await fs.readJson(configPath)) as VideoConfig;
   validateConfig(config);
 
+  const mode = config.mode ?? 'video';
+  const costTracker = new CostTracker(projectName, PROJECTS_ROOT);
+  const resultAssets: PipelineResult['assets'] = { images: [], clips: [] };
+
+  // ── Prompt validation ─────────────────────────────────────────────────
+  validatePrompts(config);
+
+  // ── Asset sourcing (before Director so auto-sourced files are available) ──
+  await sourceAssets(projectName, config, projectDir, costTracker, dryRun);
+
+  // ── Brand-images mode: generate multi-format images only ──────────────
+  if (mode === 'brand-images') {
+    if (dryRun) {
+      const formats = config.imageFormats ?? ['story', 'square', 'landscape'];
+      const imageCount = config.clips.length * formats.length;
+      logger.info(`[DRY RUN] Would generate ${imageCount} brand images (${config.clips.length} scenes × ${formats.length} formats)`);
+      for (let i = 0; i < config.clips.length; i++) {
+        const clip = config.clips[i];
+        if (!clip?.prompt) continue;
+        for (const fmt of formats) {
+          logger.info(`[DRY RUN]   scene-${i + 1}-${fmt}: ${clip.prompt.slice(0, 80)}...`);
+          costTracker.logStep('gemini-brand-image', false);
+        }
+      }
+      const totalCost = costTracker.estimateRun(config);
+      logger.success(`\n[DRY RUN] Estimated total cost: $${totalCost.toFixed(2)}`);
+      await costTracker.save();
+
+      if (runOpts?.jsonOutput === true) {
+        return {
+          success: true,
+          outputPath: path.join(projectDir, 'output', 'images'),
+          projectDir,
+          mode,
+          assets: resultAssets,
+          estimatedCost: totalCost,
+          cachedSteps: [],
+        };
+      }
+      return projectDir;
+    }
+
+    const imagesDir = await generateBrandImages(config, PROJECTS_ROOT, projectName);
+    return imagesDir;
+  }
+
+  // ── Full mode: generate brand images first, then fall through to video ─
+  if (mode === 'full') {
+    if (dryRun) {
+      const formats = config.imageFormats ?? ['story', 'square', 'landscape'];
+      const imageCount = config.clips.length * formats.length;
+      logger.info(`[DRY RUN] Would generate ${imageCount} brand images first`);
+      for (let i = 0; i < config.clips.length; i++) {
+        for (const fmt of formats) {
+          costTracker.logStep('gemini-brand-image', false);
+          void fmt; // logged in cost tracker
+        }
+      }
+    } else {
+      await generateBrandImages(config, PROJECTS_ROOT, projectName);
+    }
+  }
+
+  // ── Environment validation (video modes need all API keys) ────────────
+  if (!dryRun) {
+    validateEnv(['FAL_KEY', 'ELEVENLABS_API_KEY', 'OPENAI_API_KEY']);
+  }
+
+  // ── Airtable run tracking ───────────────────────────────────────────────
+  const airtable = new AirtableLogger();
+  let airtableRecordId: string | null = null;
+  const startTime = Date.now();
+
   const formatMeta = getFormatMeta(config.format);
-  if (runOpts?.storyboardOnly !== true) {
+  if (runOpts?.storyboardOnly !== true && !dryRun) {
     airtableRecordId = await airtable.createRun(projectName, config.format, config);
   }
 
@@ -89,11 +159,13 @@ export async function runPipeline(projectName: string, runOpts?: { storyboardOnl
     `│  Clips:   ${String(config.clips.length).padEnd(43)}│\n` +
     `│  Script:  ${(config.script ? 'Yes' : 'No').padEnd(43)}│\n` +
     `│  Music:   ${(assets.backgroundMusic ? 'Yes' : 'No').padEnd(43)}│\n` +
+    `│  Mode:    ${(dryRun ? 'DRY RUN' : mode).padEnd(43)}│\n` +
     `└────────────────────────────────────────────────────┘`,
   );
 
-  // ── Director step ────────────────────────────────────────────────────────
+  // ── Director step (runs even in dry-run — cheap and cached) ────────────
   const directorPlan = await runDirector(config, assets, PROJECTS_ROOT, projectName);
+  costTracker.logStep('director', directorPlan !== null);
 
   // Apply Director suggestions for missing hookText / CTA (never overrides explicit config values)
   if (directorPlan?.suggestedHookText !== undefined && config.hookText === undefined) {
@@ -111,17 +183,24 @@ export async function runPipeline(projectName: string, runOpts?: { storyboardOnl
   // with Director enrichment if you previously ran without the Director.
   let voiceoverPath: string | undefined;
   if (config.script && config.script.trim().length > 0 && config.voiceId) {
-    const script = directorPlan?.voice.enrichedScript ?? config.script;
-    const voiceOptions = directorPlan
-      ? {
-          voiceId: config.voiceId,
-          stability: directorPlan.voice.stability,
-          similarityBoost: directorPlan.voice.similarityBoost,
-          style: directorPlan.voice.style,
-        }
-      : { voiceId: config.voiceId };
+    if (dryRun) {
+      const script = directorPlan?.voice.enrichedScript ?? config.script;
+      logger.info(`[DRY RUN] Would generate voiceover: voice=${config.voiceId}, script="${script.slice(0, 80)}..."`);
+      costTracker.logStep('elevenlabs', false);
+    } else {
+      const script = directorPlan?.voice.enrichedScript ?? config.script;
+      const voiceOptions = directorPlan
+        ? {
+            voiceId: config.voiceId,
+            stability: directorPlan.voice.stability,
+            similarityBoost: directorPlan.voice.similarityBoost,
+            style: directorPlan.voice.style,
+          }
+        : { voiceId: config.voiceId };
 
-    voiceoverPath = await generateVoiceover(script, voiceOptions, PROJECTS_ROOT, projectName);
+      voiceoverPath = await generateVoiceover(script, voiceOptions, PROJECTS_ROOT, projectName);
+      resultAssets.voiceover = voiceoverPath;
+    }
   } else {
     logger.skip('No script or voiceId in config — skipping voiceover generation.');
   }
@@ -130,9 +209,13 @@ export async function runPipeline(projectName: string, runOpts?: { storyboardOnl
   let captions: CaptionWord[] = [];
   const shouldCaption = config.captions ?? formatMeta.defaultCaptions;
 
-  if (shouldCaption && voiceoverPath !== undefined) {
+  if (shouldCaption && voiceoverPath !== undefined && !dryRun) {
     const whisperResult = await transcribeAudio(voiceoverPath, PROJECTS_ROOT, projectName);
     captions = whisperResult.words;
+    costTracker.logStep('whisper', false);
+  } else if (dryRun && shouldCaption && config.script && config.voiceId) {
+    logger.info('[DRY RUN] Would transcribe voiceover with Whisper');
+    costTracker.logStep('whisper', false);
   } else if (shouldCaption) {
     logger.skip('Captions enabled but no voiceover — captions will be empty.');
   }
@@ -147,31 +230,44 @@ export async function runPipeline(projectName: string, runOpts?: { storyboardOnl
 
     // Use pre-generated clip URL if provided — download and skip fal.ai API
     if (clip.url !== undefined) {
-      const prebuiltPath = path.join(
-        PROJECTS_ROOT,
-        projectName,
-        'output/clips',
-        `scene-${i + 1}.mp4`,
-      );
-      if (!(await fs.pathExists(prebuiltPath))) {
-        logger.step(`Downloading pre-built clip for scene ${i + 1}...`);
-        const res = await fetch(clip.url);
-        if (!res.ok) {
-          throw new Error(
-            `Failed to download pre-built clip for scene ${i + 1}: HTTP ${res.status}`,
-          );
+      if (!dryRun) {
+        const prebuiltPath = path.join(
+          PROJECTS_ROOT,
+          projectName,
+          'output/clips',
+          `scene-${i + 1}.mp4`,
+        );
+        if (!(await fs.pathExists(prebuiltPath))) {
+          logger.step(`Downloading pre-built clip for scene ${i + 1}...`);
+          const res = await fetch(clip.url);
+          if (!res.ok) {
+            throw new Error(
+              `Failed to download pre-built clip for scene ${i + 1}: HTTP ${res.status}`,
+            );
+          }
+          const buf = await res.arrayBuffer();
+          await fs.ensureDir(path.dirname(prebuiltPath));
+          await fs.writeFile(prebuiltPath, Buffer.from(buf));
         }
-        const buf = await res.arrayBuffer();
-        await fs.ensureDir(path.dirname(prebuiltPath));
-        await fs.writeFile(prebuiltPath, Buffer.from(buf));
+        clipPaths.push(prebuiltPath);
+        resultAssets.clips.push(prebuiltPath);
       }
-      clipPaths.push(prebuiltPath);
       continue;
     }
 
     // Use Director-enriched prompt if available, fall back to raw config prompt
     const enrichedClipPlan = directorPlan?.clips.find((c) => c.sceneIndex === i + 1);
     const prompt = enrichedClipPlan?.enrichedPrompt ?? clip.prompt ?? '';
+
+    if (dryRun) {
+      logger.info(`[DRY RUN] Would generate storyboard frame for scene ${i + 1}: "${prompt.slice(0, 100)}..."`);
+      costTracker.logStep('gemini-frame', false);
+
+      const klingKey = (clip.duration ?? 5) > 5 ? 'kling-10s' : 'kling-5s';
+      logger.info(`[DRY RUN] Would generate Kling ${klingKey} clip for scene ${i + 1}`);
+      costTracker.logStep(klingKey, false);
+      continue;
+    }
 
     // Generate storyboard frame via Gemini if not already present.
     // Scene 1: text-only prompt. Scene N+1: includes previous clip's last frame for continuity.
@@ -184,6 +280,7 @@ export async function runPipeline(projectName: string, runOpts?: { storyboardOnl
       projectsRoot: PROJECTS_ROOT,
       projectName,
     });
+    costTracker.logStep('gemini-frame', generatedFrame === null);
 
     // Storyboard-only mode: skip video generation for this clip
     if (runOpts?.storyboardOnly === true) {
@@ -206,6 +303,8 @@ export async function runPipeline(projectName: string, runOpts?: { storyboardOnl
 
     const clipPath = await generateFalClip(prompt, options, PROJECTS_ROOT, imageRef);
     clipPaths.push(clipPath);
+    resultAssets.clips.push(clipPath);
+    costTracker.logStep((clip.duration ?? 5) > 5 ? 'kling-10s' : 'kling-5s', false);
 
     // Capture last frame for next scene's Gemini generation
     const lastFramePath = path.join(
@@ -216,11 +315,34 @@ export async function runPipeline(projectName: string, runOpts?: { storyboardOnl
     }
   }
 
+  // ── Dry-run exit ──────────────────────────────────────────────────────────
+  if (dryRun) {
+    const totalCost = costTracker.estimateRun(config);
+    logger.success(`\n[DRY RUN] Estimated total cost: $${totalCost.toFixed(2)}`);
+    logger.info('Run without --dry-run to execute. Consider --storyboard-only first.');
+    await costTracker.save();
+
+    if (runOpts?.jsonOutput === true) {
+      const summary = costTracker.getSummary();
+      return {
+        success: true,
+        outputPath: projectDir,
+        projectDir,
+        mode,
+        assets: resultAssets,
+        estimatedCost: summary.totalEstimated,
+        cachedSteps: summary.entries.filter((e) => e.cached).map((e) => e.step),
+      };
+    }
+    return projectDir;
+  }
+
   // Early exit: storyboard-only mode — all Gemini frames generated, no Kling calls made
   if (runOpts?.storyboardOnly === true) {
     const storyboardDir = path.join(PROJECTS_ROOT, projectName, 'assets', 'storyboard');
     logger.success('\nStoryboard generation complete!');
     logger.info(`Review your frames at: ${storyboardDir}`);
+    await costTracker.save();
     return storyboardDir;
   }
 
@@ -326,9 +448,25 @@ export async function runPipeline(projectName: string, runOpts?: { storyboardOnl
   );
 
   await fs.remove(tempOutputPath);
+  resultAssets.video = finalPath;
 
   const elapsedSeconds = (Date.now() - startTime) / 1000;
   await airtable.completeRun(airtableRecordId, finalPath, elapsedSeconds);
+  await costTracker.save();
+
+  // ── Return result ────────────────────────────────────────────────────────
+  if (runOpts?.jsonOutput === true) {
+    const summary = costTracker.getSummary();
+    return {
+      success: true,
+      outputPath: finalPath,
+      projectDir,
+      mode,
+      assets: resultAssets,
+      estimatedCost: summary.totalEstimated,
+      cachedSteps: summary.entries.filter((e) => e.cached).map((e) => e.step),
+    };
+  }
 
   return finalPath;
   } catch (err) {
