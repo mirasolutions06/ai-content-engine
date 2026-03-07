@@ -126,11 +126,11 @@ Calculate and display estimated cost before saving:
 |---|---|---|
 | Director (Claude Sonnet) | ~$0.10 | Always (runs once, cached after) |
 | Asset sourcing (Gemini) | ~$0.05-0.12 | Style ref + optional location ref + optional color extraction |
-| Storyboard frames (Gemini) | ~$0.05 x clips | Per clip |
+| Storyboard frames (Gemini 3 Pro) | ~$0.08 x clips | Per clip |
 | Voiceover (ElevenLabs) | ~$0.50 | Only if script provided |
 | Transcription (Whisper) | ~$0.02 | Only if voiceover generated |
 | Video clips (Kling via fal.ai) | ~$1.00/5s, ~$2.00/10s | Per clip — the expensive part |
-| Brand images (Gemini) | ~$0.05 x clips x formats | Only if mode includes brand-images |
+| Brand images (Gemini 3 Pro) | ~$0.08 x clips x formats | Only if mode includes brand-images |
 
 Show the breakdown and total. Example:
 

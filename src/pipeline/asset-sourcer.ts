@@ -138,7 +138,7 @@ async function generateReferenceImage(
     type InlineDataPart = { inlineData: { mimeType: string; data: string } };
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-3-pro-image-preview',
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: { responseModalities: ['TEXT', 'IMAGE'] },
     });
@@ -428,10 +428,10 @@ export async function sourceAssets(
   }
 
   // ── 2. Style Reference ──────────────────────────────────────────────────────
-  const stylePath = path.join(assetsDir, 'reference', 'style.jpg');
+  const stylePath = path.join(assetsDir, 'reference', 'style.png');
 
   if (await fs.pathExists(stylePath)) {
-    logger.skip('Asset sourcer: style.jpg already exists — skipping.');
+    logger.skip('Asset sourcer: style.png already exists — skipping.');
     result.styleReferenceSourced = true;
     result.styleSource = 'existing';
   } else {
@@ -481,10 +481,10 @@ export async function sourceAssets(
   }
 
   // ── 3. Location Reference ───────────────────────────────────────────────────
-  const locationPath = path.join(assetsDir, 'reference', 'location.jpg');
+  const locationPath = path.join(assetsDir, 'reference', 'location.png');
 
   if (await fs.pathExists(locationPath)) {
-    logger.skip('Asset sourcer: location.jpg already exists — skipping.');
+    logger.skip('Asset sourcer: location.png already exists — skipping.');
     result.locationReferenceSourced = true;
     result.locationSource = 'existing';
   } else {

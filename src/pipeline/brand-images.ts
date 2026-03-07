@@ -5,7 +5,7 @@ import { logger } from '../utils/logger.js';
 import { FORMAT_ASPECT } from '../types/index.js';
 import type { VideoConfig, ImageFormat, BrandContext } from '../types/index.js';
 
-const MODEL = 'gemini-2.5-flash-image';
+const MODEL = 'gemini-3-pro-image-preview';
 
 // ── Prompt building ──────────────────────────────────────────────────────────
 

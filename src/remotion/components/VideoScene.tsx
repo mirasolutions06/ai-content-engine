@@ -1,5 +1,6 @@
 import React from 'react';
-import { OffthreadVideo, staticFile } from 'remotion';
+import { OffthreadVideo } from 'remotion';
+import { resolveSrc } from '../helpers/resolve-src.js';
 
 interface VideoSceneProps {
   /** Absolute path to the Kling-generated .mp4 clip */
@@ -16,7 +17,7 @@ interface VideoSceneProps {
 export const VideoScene: React.FC<VideoSceneProps> = ({ clipPath, volume = 0 }) => {
   return (
     <OffthreadVideo
-      src={staticFile(clipPath)}
+      src={resolveSrc(clipPath)}
       volume={volume}
       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
     />

@@ -393,9 +393,17 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
   const relativeVoiceoverPath =
     voiceoverPath !== undefined ? path.relative(publicDir, voiceoverPath) : undefined;
 
+  // Relativize asset paths too (logo, fonts, music)
+  const rel = (p: string | undefined) => p !== undefined ? path.relative(publicDir, p) : undefined;
+  const relativeAssets = { ...assets } as typeof assets;
+  if (relativeAssets.logo !== undefined) relativeAssets.logo = rel(relativeAssets.logo)!;
+  if (relativeAssets.fontBold !== undefined) relativeAssets.fontBold = rel(relativeAssets.fontBold)!;
+  if (relativeAssets.fontRegular !== undefined) relativeAssets.fontRegular = rel(relativeAssets.fontRegular)!;
+  if (relativeAssets.backgroundMusic !== undefined) relativeAssets.backgroundMusic = rel(relativeAssets.backgroundMusic)!;
+
   const inputProps = {
     config,
-    assets,
+    assets: relativeAssets,
     captions,
     clipPaths: relativeClipPaths,
     voiceoverPath: relativeVoiceoverPath,

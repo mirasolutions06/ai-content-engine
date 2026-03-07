@@ -1,4 +1,5 @@
-import { continueRender, delayRender, staticFile } from 'remotion';
+import { continueRender, delayRender } from 'remotion';
+import { resolveSrc } from './resolve-src.js';
 
 /**
  * Loads a custom font from the project's brand folder into the Remotion browser context.
@@ -18,7 +19,7 @@ export function loadProjectFont(
 
   const handle = delayRender(`Loading font: ${fontFamily} ${weight}`);
 
-  const font = new FontFace(fontFamily, `url(${staticFile(fontPath)})`, {
+  const font = new FontFace(fontFamily, `url(${resolveSrc(fontPath)})`, {
     weight,
     style: 'normal',
   });

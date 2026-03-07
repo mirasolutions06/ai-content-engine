@@ -38,7 +38,7 @@ These rules are critical. A single bad pipeline run can burn $5-20+ in API credi
 | Director | Claude Sonnet 4.6 | ~$0.05-0.15 | Low — cached by config hash |
 | Voiceover | ElevenLabs | ~$0.30-1.00 | Medium — no preview |
 | Transcription | Whisper | ~$0.01-0.05 | Low — cheap |
-| Storyboard | Gemini 2.5 Flash | ~$0.02-0.10/frame | Medium |
+| Storyboard | Gemini 3 Pro Image | ~$0.05-0.15/frame | Medium |
 | Video clips | Kling via fal.ai | ~$0.50-2.00/clip | HIGH — most expensive |
 | Rendering | Remotion | Free (local) | None |
 | Copy gen | Claude (skills) | ~$0.05-0.15 | Low |

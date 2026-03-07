@@ -4,7 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import { logger } from '../utils/logger.js';
 import type { StoryboardGenOptions } from '../types/index.js';
 
-const MODEL = 'gemini-2.5-flash-image';
+const MODEL = 'gemini-3-pro-image-preview';
 
 function getFramePath(projectsRoot: string, projectName: string, sceneIndex: number): string {
   return path.join(projectsRoot, projectName, 'assets', 'storyboard', `scene-${sceneIndex}.png`);

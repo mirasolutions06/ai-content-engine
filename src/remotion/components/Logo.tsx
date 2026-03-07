@@ -1,5 +1,6 @@
 import React from 'react';
-import { Img, interpolate, useCurrentFrame, staticFile } from 'remotion';
+import { Img, interpolate, useCurrentFrame } from 'remotion';
+import { resolveSrc } from '../helpers/resolve-src.js';
 
 interface LogoProps {
   /** Path to logo PNG (transparent background recommended) */
@@ -33,10 +34,12 @@ export const Logo: React.FC<LogoProps> = ({
       ? { top: 24, right: 24 }
       : { top: 24, left: 24 };
 
+  const src = resolveSrc(logoPath);
+
   return (
     <div style={{ position: 'absolute', ...posStyle, opacity: fadeIn, zIndex: 10 }}>
       <Img
-        src={staticFile(logoPath)}
+        src={src}
         style={{ width: sizePx, height: sizePx, objectFit: 'contain' }}
       />
     </div>

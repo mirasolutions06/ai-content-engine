@@ -3,9 +3,9 @@ import {
   AbsoluteFill,
   Audio,
   Sequence,
-  staticFile,
   useVideoConfig,
 } from 'remotion';
+import { resolveSrc } from '../helpers/resolve-src.js';
 import { TransitionSeries, linearTiming } from '@remotion/transitions';
 import { fade } from '@remotion/transitions/fade';
 import { VideoScene } from '../components/VideoScene.js';
@@ -60,12 +60,12 @@ export const Ad: React.FC<CompositionProps> = ({
 
       {/* Voiceover — primary audio track at full volume */}
       {voiceoverPath !== undefined && (
-        <Audio src={staticFile(voiceoverPath)} volume={1} />
+        <Audio src={resolveSrc(voiceoverPath)} volume={1} />
       )}
 
       {/* Background music */}
       {config.music === true && assets.backgroundMusic !== undefined && (
-        <Audio src={staticFile(assets.backgroundMusic)} volume={musicVolume} />
+        <Audio src={resolveSrc(assets.backgroundMusic)} volume={musicVolume} />
       )}
 
       {/* Lower third — shows client name and optional tagline */}

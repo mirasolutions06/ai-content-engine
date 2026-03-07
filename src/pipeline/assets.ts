@@ -36,9 +36,9 @@ export class AssetLoader {
       this.loadOptional('assets/brand/font-bold.ttf', 'bold font'),
       this.loadOptional('assets/brand/font-regular.ttf', 'regular font'),
       this.loadBrandColors(),
-      this.loadOptional('assets/reference/style.jpg', 'style reference'),
+      this.loadOptional('assets/reference/style.png', 'style reference'),
       this.loadOptional('assets/reference/subject.jpg', 'subject reference'),
-      this.loadOptional('assets/reference/location.jpg', 'location reference'),
+      this.loadOptional('assets/reference/location.png', 'location reference'),
       this.loadOptional('assets/audio/music.mp3', 'background music'),
     ]);
 
