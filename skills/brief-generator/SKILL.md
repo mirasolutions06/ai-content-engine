@@ -74,6 +74,7 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
   "captions": true,
   "captionStyle": "word-by-word | line-by-line",
   "captionPosition": "bottom | center | top",
+  "captionTheme": "bold | editorial | minimal",
   "hookText": "SCROLL-STOPPING HOOK IN ALL CAPS, 7 WORDS MAX",
   "cta": {
     "text": "Action phrase, 5 words max",
@@ -81,7 +82,10 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
   },
   "music": true,
   "musicVolume": 0.15,
-  "imageFormats": ["story", "square", "landscape"]
+  "imageFormats": ["story", "square", "landscape"],
+  "klingVersion": "v2.1 | v3",
+  "colorUnify": false,
+  "colorUnifyOpacity": 0.06
 }
 ```
 
@@ -91,6 +95,10 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
 - `cta`: omit if not relevant (Director will suggest one)
 - `imageFormats`: omit to use default `["story", "square", "landscape"]`
 - `captionPosition`: omit to use default `"bottom"`
+- `captionTheme`: omit to let the Director auto-select based on brand tone. Set explicitly to override. Options: `bold` (TikTok pill-style highlights), `editorial` (clean luxury underline accent), `minimal` (simple opacity-based)
+- `klingVersion`: omit for default `"v2.1"` (cheaper, ~$0.49/5s clip). Set to `"v3"` for higher quality with multi-shot storyboards (~$1.12/5s clip, ~2.3x more expensive). v3 produces smoother transitions and better motion quality.
+- `colorUnify`: omit for default `false`. Set to `true` to apply a subtle brand-colored overlay on clips to unify color temperature across different Kling-generated scenes.
+- `colorUnifyOpacity`: omit for default `0.06` (6%). Adjust 0-1 if color unity overlay is too strong or subtle.
 
 ### Scene Prompt Rules
 
@@ -129,7 +137,8 @@ Calculate and display estimated cost before saving:
 | Storyboard frames (Gemini 3 Pro) | ~$0.08 x clips | Per clip |
 | Voiceover (ElevenLabs) | ~$0.50 | Only if script provided |
 | Transcription (Whisper) | ~$0.02 | Only if voiceover generated |
-| Video clips (Kling via fal.ai) | ~$1.00/5s, ~$2.00/10s | Per clip — the expensive part |
+| Video clips (Kling v2.1 via fal.ai) | ~$0.49/5s, ~$0.90/10s | Per clip — default, cheaper |
+| Video clips (Kling v3 via fal.ai) | ~$1.12/5s, ~$2.24/10s | Per clip — higher quality, ~2.3x more |
 | Brand images (Gemini 3 Pro) | ~$0.08 x clips x formats | Only if mode includes brand-images |
 
 Show the breakdown and total. Example:
@@ -141,12 +150,14 @@ Estimated cost breakdown:
   Storyboard (4x):    $0.20
   Voiceover:          $0.50
   Whisper:            $0.02
-  Kling 5s (4x):      $4.00
+  Kling v2.1 5s (4x): $1.96   (or v3: $4.48)
   Brand images (4x3): $0.60
   ─────────────────────────
-  Total:              ~$5.54
+  Total (v2.1):       ~$3.50
+  Total (v3):         ~$6.02
 
-Recommendation: Run --storyboard-only first (~$0.42) to preview frames before committing to Kling (~$4.00).
+Recommendation: Run --storyboard-only first (~$0.42) to preview frames before committing to Kling.
+Note: v3 produces smoother transitions and better motion quality but costs ~2.3x more per clip.
 ```
 
 ALWAYS recommend `--storyboard-only` first.
@@ -222,6 +233,7 @@ Next steps:
   "transition": "crossfade",
   "captions": true,
   "captionStyle": "word-by-word",
+  "captionTheme": "editorial",
   "hookText": "YOUR SKIN DESERVES BETTER",
   "cta": {
     "text": "Try GlowLab Today",

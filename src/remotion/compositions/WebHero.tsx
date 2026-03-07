@@ -1,7 +1,7 @@
 import React from 'react';
 import { AbsoluteFill, useVideoConfig } from 'remotion';
-import { TransitionSeries, linearTiming } from '@remotion/transitions';
-import { fade } from '@remotion/transitions/fade';
+import { TransitionSeries } from '@remotion/transitions';
+import { resolveTransition } from '../helpers/transitions.js';
 import { VideoScene } from '../components/VideoScene.js';
 import { secondsToFrames } from '../helpers/timing.js';
 import type { CompositionProps } from '../../types/index.js';
@@ -12,6 +12,8 @@ export const WebHero: React.FC<CompositionProps> = ({
   clipPaths,
 }) => {
   const { fps } = useVideoConfig();
+
+  const transition = resolveTransition(config.transition);
 
   // Color overlay uses brand primary color at low opacity for text readability
   const overlayColor = assets.brandColors?.primary ?? null;
@@ -30,10 +32,10 @@ export const WebHero: React.FC<CompositionProps> = ({
               <TransitionSeries.Sequence durationInFrames={clipDuration}>
                 <VideoScene clipPath={clipPath} volume={0} />
               </TransitionSeries.Sequence>
-              {!isLastClip && config.transition !== 'cut' && (
+              {!isLastClip && transition !== null && (
                 <TransitionSeries.Transition
-                  timing={linearTiming({ durationInFrames: 15 })}
-                  presentation={fade()}
+                  timing={transition.timing}
+                  presentation={transition.presentation}
                 />
               )}
             </React.Fragment>

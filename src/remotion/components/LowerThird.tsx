@@ -6,6 +6,7 @@ interface LowerThirdProps {
   title: string;
   subtitle?: string;
   colors?: BrandColors;
+  fontFamily?: string;
   /** Frame at which the lower third starts appearing. Default: 30 */
   startFrame?: number;
   /** Frame at which the lower third finishes disappearing. Default: 120 */
@@ -21,6 +22,7 @@ export const LowerThird: React.FC<LowerThirdProps> = ({
   title,
   subtitle,
   colors,
+  fontFamily = 'sans-serif',
   startFrame = 30,
   endFrame = 120,
 }) => {
@@ -62,7 +64,7 @@ export const LowerThird: React.FC<LowerThirdProps> = ({
           color: primary,
           fontSize: 32,
           fontWeight: 700,
-          fontFamily: 'sans-serif',
+          fontFamily,
         }}
       >
         {title}
@@ -73,7 +75,7 @@ export const LowerThird: React.FC<LowerThirdProps> = ({
             color: primary,
             fontSize: 20,
             opacity: 0.8,
-            fontFamily: 'sans-serif',
+            fontFamily,
             marginTop: 4,
           }}
         >

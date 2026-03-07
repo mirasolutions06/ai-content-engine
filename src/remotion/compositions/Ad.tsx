@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   AbsoluteFill,
   Audio,
@@ -6,8 +6,10 @@ import {
   useVideoConfig,
 } from 'remotion';
 import { resolveSrc } from '../helpers/resolve-src.js';
-import { TransitionSeries, linearTiming } from '@remotion/transitions';
-import { fade } from '@remotion/transitions/fade';
+import { loadProjectFont } from '../helpers/fonts.js';
+import { TransitionSeries } from '@remotion/transitions';
+import { resolveTransition } from '../helpers/transitions.js';
+import { createMusicVolumeCallback } from '../helpers/audio-ducking.js';
 import { VideoScene } from '../components/VideoScene.js';
 import { CaptionTrack } from '../components/CaptionTrack.js';
 import { Logo } from '../components/Logo.js';
@@ -15,6 +17,8 @@ import { LowerThird } from '../components/LowerThird.js';
 import { Outro } from '../components/Outro.js';
 import { secondsToFrames } from '../helpers/timing.js';
 import type { CompositionProps } from '../../types/index.js';
+
+const BRAND_FONT = 'BrandFont';
 
 export const Ad: React.FC<CompositionProps> = ({
   config,
@@ -25,13 +29,35 @@ export const Ad: React.FC<CompositionProps> = ({
 }) => {
   const { fps, durationInFrames } = useVideoConfig();
 
+  // Load custom fonts from project brand folder (falls back to sans-serif if missing)
+  loadProjectFont(assets.fontBold, BRAND_FONT, '700');
+  loadProjectFont(assets.fontRegular, BRAND_FONT, '400');
+
+  const hasCustomFont = assets.fontBold !== undefined || assets.fontRegular !== undefined;
+  const fontFamily = hasCustomFont ? `${BRAND_FONT}, sans-serif` : 'sans-serif';
+
   const showCaptions = config.captions ?? false;
   const musicVolume = config.musicVolume ?? 0.15;
+  const captionTheme = config.captionTheme ?? 'bold';
   const ctaDurationFrames = secondsToFrames(config.cta?.durationSeconds ?? 3, fps);
   const ctaStartFrame = durationInFrames - ctaDurationFrames;
 
   // Total clip duration in frames (for lower third timing)
   const mainContentFrames = durationInFrames - ctaDurationFrames;
+
+  const transition = resolveTransition(config.transition);
+
+  // Music volume automation: ducks under voiceover, fades in/out
+  const musicVolumeCallback = useMemo(
+    () =>
+      createMusicVolumeCallback({
+        captions,
+        fps,
+        baseVolume: musicVolume,
+        totalFrames: durationInFrames,
+      }),
+    [captions, fps, musicVolume, durationInFrames],
+  );
 
   return (
     <AbsoluteFill style={{ backgroundColor: '#000' }}>
@@ -47,10 +73,10 @@ export const Ad: React.FC<CompositionProps> = ({
               <TransitionSeries.Sequence durationInFrames={clipDuration}>
                 <VideoScene clipPath={clipPath} volume={0} />
               </TransitionSeries.Sequence>
-              {!isLastClip && config.transition !== 'cut' && (
+              {!isLastClip && transition !== null && (
                 <TransitionSeries.Transition
-                  timing={linearTiming({ durationInFrames: 15 })}
-                  presentation={fade()}
+                  timing={transition.timing}
+                  presentation={transition.presentation}
                 />
               )}
             </React.Fragment>
@@ -58,14 +84,28 @@ export const Ad: React.FC<CompositionProps> = ({
         })}
       </TransitionSeries>
 
+      {/* Optional brand color unity overlay */}
+      {config.colorUnify === true && assets.brandColors?.primary !== undefined && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            backgroundColor: assets.brandColors.primary,
+            opacity: config.colorUnifyOpacity ?? 0.06,
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
+      )}
+
       {/* Voiceover — primary audio track at full volume */}
       {voiceoverPath !== undefined && (
         <Audio src={resolveSrc(voiceoverPath)} volume={1} />
       )}
 
-      {/* Background music */}
+      {/* Background music with ducking */}
       {config.music === true && assets.backgroundMusic !== undefined && (
-        <Audio src={resolveSrc(assets.backgroundMusic)} volume={musicVolume} />
+        <Audio src={resolveSrc(assets.backgroundMusic)} volume={musicVolumeCallback} />
       )}
 
       {/* Lower third — shows client name and optional tagline */}
@@ -73,6 +113,7 @@ export const Ad: React.FC<CompositionProps> = ({
         <LowerThird
           title={config.client}
           subtitle={config.title}
+          fontFamily={fontFamily}
           {...(assets.brandColors !== undefined ? { colors: assets.brandColors } : {})}
           startFrame={secondsToFrames(1, fps)}
           endFrame={mainContentFrames - secondsToFrames(1, fps)}
@@ -85,6 +126,9 @@ export const Ad: React.FC<CompositionProps> = ({
           words={captions}
           style={config.captionStyle ?? 'word-by-word'}
           position={config.captionPosition ?? 'bottom'}
+          theme={captionTheme}
+          colors={assets.brandColors}
+          fontFamily={fontFamily}
         />
       )}
 
@@ -98,6 +142,7 @@ export const Ad: React.FC<CompositionProps> = ({
         <Sequence from={ctaStartFrame} durationInFrames={ctaDurationFrames}>
           <Outro
             cta={config.cta}
+            fontFamily={fontFamily}
             {...(assets.brandColors !== undefined ? { colors: assets.brandColors } : {})}
           />
         </Sequence>

@@ -29,8 +29,12 @@ const COST_MAP: Record<string, number> = {
   'gemini-location-ref': 0.08,
   'gemini-color-extract': 0.02,
   'haiku-color-gen': 0.01,
-  'kling-5s': 1.00,
-  'kling-10s': 2.00,
+  // Kling v2.1 Pro
+  'kling-5s': 0.49,
+  'kling-10s': 0.90,
+  // Kling v3 Pro (no audio)
+  'kling-v3-5s': 1.12,
+  'kling-v3-10s': 2.24,
 };
 
 export class CostTracker {
@@ -59,9 +63,11 @@ export class CostTracker {
         total += COST_MAP['whisper']!;
       }
 
+      const isV3 = config.klingVersion === 'v3';
       for (const clip of config.clips) {
         total += COST_MAP['gemini-frame']!;
-        const klingKey = (clip.duration ?? 5) > 5 ? 'kling-10s' : 'kling-5s';
+        const dur = (clip.duration ?? 5) > 5 ? '10s' : '5s';
+        const klingKey = isV3 ? `kling-v3-${dur}` : `kling-${dur}`;
         total += COST_MAP[klingKey]!;
       }
     }

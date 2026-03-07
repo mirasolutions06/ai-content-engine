@@ -2,28 +2,138 @@ import React, { useMemo } from 'react';
 import { useCurrentFrame, useVideoConfig, interpolate } from 'remotion';
 import { groupWordsIntoLines, getActiveWordIndex } from '../../pipeline/captions.js';
 import type { CaptionLine } from '../../pipeline/captions.js';
-import type { CaptionWord, CaptionStyle } from '../../types/index.js';
+import type { CaptionWord, CaptionStyle, CaptionTheme, BrandColors } from '../../types/index.js';
 
 interface CaptionTrackProps {
   words: CaptionWord[];
   style?: CaptionStyle;
   position?: 'bottom' | 'center' | 'top';
+  theme?: CaptionTheme;
+  colors?: BrandColors | undefined;
+  fontFamily?: string;
   /** Maximum characters per caption line. Default: 25 */
   maxCharsPerLine?: number;
 }
 
-const BASE_TEXT_STYLE: React.CSSProperties = {
-  fontFamily: 'sans-serif',
-  fontSize: 68,
-  fontWeight: 800,
-  lineHeight: 1.2,
-  textAlign: 'center',
-  color: 'white',
-  WebkitTextStroke: '3px black',
-  textShadow: '0 4px 12px rgba(0,0,0,0.8)',
-  padding: '0 40px',
-  wordBreak: 'break-word',
-};
+// ─── Theme definitions ─────────────────────────────────────────────────────
+
+interface ThemeStyles {
+  container: React.CSSProperties;
+  activeWord: (colors?: BrandColors) => React.CSSProperties;
+  inactiveWord: React.CSSProperties;
+  lineText: React.CSSProperties;
+}
+
+function getTheme(theme: CaptionTheme, fontFamily: string): ThemeStyles {
+  switch (theme) {
+    case 'bold':
+      return {
+        container: {
+          fontFamily,
+          fontSize: 64,
+          fontWeight: 900,
+          lineHeight: 1.3,
+          textAlign: 'center',
+          textTransform: 'uppercase' as const,
+          padding: '0 24px',
+          wordBreak: 'break-word' as const,
+        },
+        activeWord: (colors) => ({
+          display: 'inline-block',
+          color: '#000',
+          backgroundColor: colors?.primary ?? '#FACC15',
+          padding: '4px 12px',
+          borderRadius: 8,
+          margin: '2px 3px',
+          transform: 'scale(1.05)',
+          filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.5))',
+        }),
+        inactiveWord: {
+          display: 'inline-block',
+          color: 'white',
+          padding: '4px 12px',
+          borderRadius: 8,
+          margin: '2px 3px',
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))',
+        },
+        lineText: {
+          color: 'white',
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          padding: '8px 20px',
+          borderRadius: 12,
+          display: 'inline-block',
+          filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.5))',
+        },
+      };
+
+    case 'editorial':
+      return {
+        container: {
+          fontFamily,
+          fontSize: 48,
+          fontWeight: 500,
+          lineHeight: 1.4,
+          textAlign: 'center',
+          letterSpacing: '0.02em',
+          padding: '0 60px',
+          wordBreak: 'break-word' as const,
+        },
+        activeWord: (colors) => ({
+          display: 'inline-block',
+          color: 'white',
+          borderBottom: `3px solid ${colors?.primary ?? '#FACC15'}`,
+          paddingBottom: 2,
+          margin: '0 4px',
+          fontWeight: 700,
+          filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.6))',
+        }),
+        inactiveWord: {
+          display: 'inline-block',
+          color: 'rgba(255,255,255,0.85)',
+          margin: '0 4px',
+          filter: 'drop-shadow(0 1px 4px rgba(0,0,0,0.5))',
+        },
+        lineText: {
+          color: 'rgba(255,255,255,0.9)',
+          filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.6))',
+        },
+      };
+
+    case 'minimal':
+    default:
+      return {
+        container: {
+          fontFamily,
+          fontSize: 52,
+          fontWeight: 600,
+          lineHeight: 1.3,
+          textAlign: 'center',
+          padding: '0 40px',
+          wordBreak: 'break-word' as const,
+        },
+        activeWord: () => ({
+          display: 'inline-block',
+          color: 'white',
+          margin: '0 4px',
+          opacity: 1,
+          fontWeight: 700,
+          textShadow: '0 2px 8px rgba(0,0,0,0.7)',
+        }),
+        inactiveWord: {
+          display: 'inline-block',
+          color: 'white',
+          margin: '0 4px',
+          opacity: 0.5,
+          textShadow: '0 1px 4px rgba(0,0,0,0.5)',
+        },
+        lineText: {
+          color: 'white',
+          textShadow: '0 2px 8px rgba(0,0,0,0.7)',
+        },
+      };
+  }
+}
 
 const POSITION_STYLES: Record<'bottom' | 'center' | 'top', React.CSSProperties> = {
   bottom: { position: 'absolute', bottom: 120, left: 0, right: 0 },
@@ -40,27 +150,33 @@ const POSITION_STYLES: Record<'bottom' | 'center' | 'top', React.CSSProperties> 
 /**
  * CaptionTrack renders animated captions synced to Whisper word timestamps.
  *
+ * Supports three visual themes:
+ *   - 'bold': TikTok/CapCut style — pill backgrounds, brand color highlight on active word
+ *   - 'editorial': Clean luxury — subtle shadow, brand-colored underline on active word
+ *   - 'minimal': Simple white text with opacity-based word highlighting
+ *
  * Word-by-word mode:
  *   - Finds the line containing the currently-active word
- *   - Renders all words on that line
- *   - Active word: full opacity + slightly larger scale
- *   - Inactive words on same line: 60% opacity
+ *   - Renders all words on that line with theme-specific active/inactive styles
  *
  * Line-by-line mode:
  *   - Renders the full active line as a single string
  *   - Fades in at line start, fades out at line end
- *
- * Emoji in captions are handled automatically by the browser's Unicode renderer.
  */
 export const CaptionTrack: React.FC<CaptionTrackProps> = ({
   words,
   style = 'word-by-word',
   position = 'bottom',
+  theme = 'bold',
+  colors,
+  fontFamily = 'sans-serif',
   maxCharsPerLine = 25,
 }) => {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const currentTimeSec = frame / fps;
+
+  const themeStyles = useMemo(() => getTheme(theme, fontFamily), [theme, fontFamily]);
 
   const lines = useMemo(
     () => groupWordsIntoLines(words, maxCharsPerLine),
@@ -78,6 +194,8 @@ export const CaptionTrack: React.FC<CaptionTrackProps> = ({
           words={words}
           lines={lines}
           currentTimeSec={currentTimeSec}
+          themeStyles={themeStyles}
+          colors={colors}
         />
       </div>
     );
@@ -91,7 +209,6 @@ export const CaptionTrack: React.FC<CaptionTrackProps> = ({
   if (!activeLine) return null;
 
   const lineText = activeLine.words.map((w) => w.word).join(' ');
-  // Fade in over 0.1s at line start, fade out over 0.1s at line end
   const lineOpacity = interpolate(
     currentTimeSec,
     [
@@ -106,7 +223,9 @@ export const CaptionTrack: React.FC<CaptionTrackProps> = ({
 
   return (
     <div style={posStyle}>
-      <div style={{ ...BASE_TEXT_STYLE, opacity: lineOpacity }}>{lineText}</div>
+      <div style={{ ...themeStyles.container, ...themeStyles.lineText, opacity: lineOpacity }}>
+        {lineText}
+      </div>
     </div>
   );
 };
@@ -117,16 +236,19 @@ interface WordByWordCaptionProps {
   words: CaptionWord[];
   lines: CaptionLine[];
   currentTimeSec: number;
+  themeStyles: ThemeStyles;
+  colors?: BrandColors | undefined;
 }
 
 const WordByWordCaption: React.FC<WordByWordCaptionProps> = ({
   words,
   lines,
   currentTimeSec,
+  themeStyles,
+  colors,
 }) => {
   const activeWordIndex = getActiveWordIndex(words, currentTimeSec);
 
-  // Find the line that contains the active word
   const activeLine = useMemo(() => {
     if (activeWordIndex === -1) return null;
     const activeWord = words[activeWordIndex];
@@ -146,16 +268,13 @@ const WordByWordCaption: React.FC<WordByWordCaptionProps> = ({
   return (
     <div
       style={{
-        ...BASE_TEXT_STYLE,
+        ...themeStyles.container,
         display: 'flex',
         flexWrap: 'wrap',
         justifyContent: 'center',
-        columnGap: 8,
-        rowGap: 4,
       }}
     >
       {activeLine.words.map((word, idx) => {
-        // Find the global index of this word to compare with activeWordIndex
         const globalIdx = words.findIndex(
           (w) => w.start === word.start && w.word === word.word,
         );
@@ -164,13 +283,7 @@ const WordByWordCaption: React.FC<WordByWordCaptionProps> = ({
         return (
           <span
             key={`${word.word}-${word.start}-${idx}`}
-            style={{
-              display: 'inline-block',
-              opacity: isActive ? 1 : 0.6,
-              fontWeight: isActive ? 900 : 700,
-              // Subtle scale emphasis on active word — avoids layout shift by using transform
-              transform: isActive ? 'scale(1.06)' : 'scale(1)',
-            }}
+            style={isActive ? themeStyles.activeWord(colors) : themeStyles.inactiveWord}
           >
             {word.word}
           </span>

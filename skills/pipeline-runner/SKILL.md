@@ -77,11 +77,11 @@ npm start -- --project {name} --dry-run
 ```
 
 Parse the output and present to the user:
-- **Director plan**: visual style summary, enriched prompts per scene, voice settings
+- **Director plan**: visual style summary, enriched prompts per scene, voice settings, suggested caption theme
 - **Asset sourcing**: what would be auto-sourced (colors, style ref, location ref, music)
 - **Voiceover**: script text + voice ID + estimated cost
 - **Storyboard frames**: enriched prompt per scene + cost per frame
-- **Kling clips**: prompt per clip + duration + cost per clip
+- **Kling clips**: prompt per clip + duration + cost per clip (v2.1: ~$0.49/5s, v3: ~$1.12/5s)
 - **Brand images** (if applicable): scene count x format count + cost
 - **Total estimated cost**
 
@@ -119,7 +119,8 @@ Storyboard frames generated:
   projects/{name}/assets/storyboard/scene-3.png
   projects/{name}/assets/storyboard/scene-4.png
 
-Review the frames. Each one will become a 5-second video clip via Kling (~$1.00 each).
+Review the frames. Each one will become a 5-second video clip via Kling.
+Cost per clip: v2.1 ~$0.49 (default) | v3 ~$1.12 (higher quality).
 
 Options:
   "approve" — proceed to full generation (~$X.XX for Kling + voiceover)
@@ -300,7 +301,8 @@ Then re-run. The Director will also regenerate `cache/brand-context.json`.
 | What to fix | Delete | Re-run command | Cost |
 |---|---|---|---|
 | One storyboard frame | `assets/storyboard/scene-{N}.png` | `--storyboard-only` | ~$0.05 |
-| One video clip | `output/clips/scene-{N}.mp4` | `--json-output` | ~$1-2 |
+| One video clip (v2.1) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$0.49-0.90 |
+| One video clip (v3) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$1.12-2.24 |
 | Voiceover | Nothing (hash auto-detects script change) | `--json-output` | ~$0.50 |
 | Director plan | `cache/director-plan.json` | `--json-output` | ~$0.10 |
 | Brand colors | `assets/brand/brand.json` | `--json-output` | ~$0.01-0.02 |

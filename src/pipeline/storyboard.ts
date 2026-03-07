@@ -10,35 +10,35 @@ function getFramePath(projectsRoot: string, projectName: string, sceneIndex: num
   return path.join(projectsRoot, projectName, 'assets', 'storyboard', `scene-${sceneIndex}.png`);
 }
 
-function buildImagePrompt(options: StoryboardGenOptions, isContinuation: boolean): string {
-  const aspectHint =
-    options.format === 'youtube-short' || options.format === 'tiktok'
-      ? 'vertical 9:16 cinematic frame'
-      : 'horizontal 16:9 cinematic frame';
+function getGeminiAspectRatio(format: StoryboardGenOptions['format']): string {
+  if (format === 'youtube-short' || format === 'tiktok') return '9:16';
+  if (format === 'ad-1x1') return '1:1';
+  return '16:9';
+}
 
-  const styleHint = options.visualStyleSummary
-    ? `Overall visual style: ${options.visualStyleSummary}.`
-    : '';
+function buildImagePrompt(options: StoryboardGenOptions, isContinuation: boolean): string {
+  // Build a natural scene description using all available Director fields
+  const parts: string[] = [];
 
   if (isContinuation) {
-    return (
-      `You are generating a storyboard starting frame for a video clip. ` +
-      `This image should visually continue from the previous clip shown above. ` +
-      `Maintain the same subject, lighting, color palette, and atmosphere. ` +
-      `New scene: ${options.prompt}. ` +
-      `${styleHint} ` +
-      `Format: ${aspectHint}. ` +
-      `High quality, photorealistic, cinematic still frame. No text, no watermarks.`
+    parts.push(
+      `Generate a cinematic still frame that visually continues from the previous image above.`,
+      `Maintain the same subject appearance, lighting direction, color palette, and atmosphere.`,
     );
   }
 
-  return (
-    `You are generating a storyboard starting frame for a video clip. ` +
-    `Scene: ${options.prompt}. ` +
-    `${styleHint} ` +
-    `Format: ${aspectHint}. ` +
-    `High quality, photorealistic, cinematic still frame. No text, no watermarks.`
-  );
+  // The enriched prompt is the core — it already contains the scene + cinematography from the Director
+  parts.push(options.prompt + '.');
+
+  // Layer in Director fields that aren't already in the enriched prompt
+  if (options.lighting) parts.push(`Lighting: ${options.lighting}.`);
+  if (options.colorGrade) parts.push(`Color palette: ${options.colorGrade}.`);
+  if (options.cameraMove) parts.push(`Framing: ${options.cameraMove}.`);
+  if (options.visualStyleSummary) parts.push(`Style: ${options.visualStyleSummary}.`);
+
+  parts.push(`Photorealistic, cinematic still frame. No text, no logos, no watermarks.`);
+
+  return parts.join(' ');
 }
 
 /**
@@ -101,7 +101,13 @@ export async function generateStoryboardFrame(
     const response = await ai.models.generateContent({
       model: MODEL,
       contents: [{ role: 'user', parts }],
-      config: { responseModalities: ['TEXT', 'IMAGE'] },
+      config: {
+        responseModalities: ['TEXT', 'IMAGE'],
+        imageConfig: {
+          aspectRatio: getGeminiAspectRatio(options.format),
+          imageSize: '2K',
+        },
+      },
     });
 
     // Extract the first image block from the response

@@ -39,7 +39,8 @@ These rules are critical. A single bad pipeline run can burn $5-20+ in API credi
 | Voiceover | ElevenLabs | ~$0.30-1.00 | Medium — no preview |
 | Transcription | Whisper | ~$0.01-0.05 | Low — cheap |
 | Storyboard | Gemini 3 Pro Image | ~$0.05-0.15/frame | Medium |
-| Video clips | Kling via fal.ai | ~$0.50-2.00/clip | HIGH — most expensive |
+| Video clips (v2.1) | Kling v2.1 Pro via fal.ai | ~$0.49-0.90/clip | HIGH — most expensive |
+| Video clips (v3) | Kling v3 Pro via fal.ai | ~$1.12-2.24/clip | HIGH — ~2.3x more than v2.1 |
 | Rendering | Remotion | Free (local) | None |
 | Copy gen | Claude (skills) | ~$0.05-0.15 | Low |
 
@@ -179,7 +180,7 @@ Change 6: Add src/utils/prompt-validator.ts
 Validates prompts before they are sent to any paid API. Checks: prompt length (20-400 chars for Kling), detects text/logo requests (AI video cannot do these), checks for visual style cues, warns on complex multi-subject scenes, validates script length against format time limits, validates full config with clip count cost warnings. Run validation in the pipeline before any API calls. Log warnings but do not block.
 
 Change 7: Add src/utils/cost-tracker.ts
-Tracks estimated API spend per pipeline run. Has a cost estimate map for each API (director ~$0.10, elevenlabs ~$0.50, whisper ~$0.02, gemini frame ~$0.05, kling 5s ~$1.00, kling 10s ~$2.00). Logs each step with running total using the logger. Has estimateRun(config) method that pre-calculates total cost. Saves full cost log to projects/{name}/cache/cost-log.json. Tracks which steps were cached (saved money).
+Tracks estimated API spend per pipeline run. Has a cost estimate map for each API (director ~$0.10, elevenlabs ~$0.50, whisper ~$0.02, gemini frame ~$0.08, kling v2.1: $0.49/5s, $0.90/10s; kling v3: $1.12/5s, $2.24/10s). Logs each step with running total using the logger. Has estimateRun(config) method that pre-calculates total cost based on klingVersion. Saves full cost log to projects/{name}/cache/cost-log.json. Tracks which steps were cached (saved money).
 
 Change 8: Add hash-based caching to ElevenLabs voiceover in src/pipeline/elevenlabs.ts
 Replace the simple file-exists check with a content-hash cache. Hash the script text + voiceId + all voice settings (stability, similarityBoost, style). Cache voiceover files as voiceover-{hash}.mp3 in the cache/ directory. Copy to output/voiceover.mp3 for the pipeline to consume. This prevents regenerating voiceover when non-script config fields change.

@@ -42,12 +42,20 @@ OUTPUT FORMAT — return ONLY this JSON object, nothing else:
     "enrichedScript": "<exact original script with optional <break time='0.5s'/> SSML tags added at natural pauses>"
   },
   "suggestedHookText": "<≤7 words, ALL CAPS, no trailing period — or null if hookText already in config>",
-  "suggestedCta": { "text": "<≤5 word action phrase>", "subtext": "<≤10 words>" }
+  "suggestedCta": { "text": "<≤5 word action phrase>", "subtext": "<≤10 words>" },
+  "suggestedCaptionTheme": "<'bold' | 'editorial' | 'minimal' — or null if captionTheme already in config>"
 }
 
 STRICT RULES:
 1. Output only the raw JSON object. No markdown fences, no explanatory text.
-2. enrichedPrompt MUST start verbatim with the clip's original prompt text (or an inferred scene description if prompt is empty), followed by " — " then cinematography notes. Maximum 400 characters total.
+2. enrichedPrompt MUST be a vivid scene description optimized for AI image generation. Start with the original prompt text, then append " — " followed by cinematography enrichment. Maximum 400 characters total. Rules for the enrichment:
+   - Describe ONE clear subject with specific material/texture cues (e.g. "raw golden shea butter with a matte, grainy texture")
+   - Specify depth of field (e.g. "shallow depth of field, f/1.8 bokeh background")
+   - Include lighting direction and quality (e.g. "warm side-light from the left, soft diffused fill")
+   - Add color palette cues (e.g. "earth tones with warm amber highlights against deep chocolate shadows")
+   - Mention camera perspective naturally (e.g. "close-up from slightly above" not just "macro lens")
+   - NEVER use generic filler like "masterpiece, best quality, 4k, trending" — be specific and descriptive
+   - Write as a natural scene description, not a keyword list
 3. Derive colorGrade, lighting, and visualStyleSummary from the reference images if present. Without images, derive from format style conventions, brand colors, and script tone.
 4. Format-specific default styles when no images are provided:
    - youtube-short / tiktok: fast-paced, high-contrast, punchy cuts, vertical composition
@@ -63,7 +71,12 @@ STRICT RULES:
 7. suggestedHookText: generate ONLY if the config JSON has no hookText field. Make it scroll-stopping: a punchy statement or question in ALL CAPS, ≤7 words. Set to null if hookText exists in config.
 8. suggestedCta: generate ONLY if config has no cta field. text should be an imperative call to action (≤5 words). subtext should give a reason or benefit (≤10 words). Set to null if cta exists.
 9. Ensure visual continuity: continuityNote for scene 1 describes the visual cold-open moment. For scenes 2+, reference a specific element from the previous clip (color, subject position, motion direction, texture).
-10. Number of clip objects in the output MUST exactly equal the number of clips in the input brief's clips array.`;
+10. Number of clip objects in the output MUST exactly equal the number of clips in the input brief's clips array.
+11. suggestedCaptionTheme: generate ONLY if config has no captionTheme field. Choose based on brand tone:
+   - Luxury, calm, premium, editorial brands → "editorial" (clean underline accent, subtle shadows)
+   - Energetic, bold, promotional, youth-oriented → "bold" (TikTok pill-style highlights)
+   - Corporate, instructional, minimal branding → "minimal" (simple opacity-based)
+   Set to null if captionTheme exists in config.`;
 
 // ── Config hashing ────────────────────────────────────────────────────────────
 
@@ -197,6 +210,13 @@ function normalizePlan(
   }
   if (config.cta === undefined && raw.suggestedCta) {
     plan.suggestedCta = raw.suggestedCta;
+  }
+  if (config.captionTheme === undefined && raw.suggestedCaptionTheme) {
+    const valid = ['bold', 'editorial', 'minimal'] as const;
+    const theme = raw.suggestedCaptionTheme as string;
+    if (valid.includes(theme as typeof valid[number])) {
+      plan.suggestedCaptionTheme = theme as typeof valid[number];
+    }
   }
 
   return plan;

@@ -15,18 +15,31 @@ function buildBrandPrompt(
   brief: string | undefined,
   format: ImageFormat,
   brandContext?: BrandContext,
+  sceneIndex?: number,
 ): string {
-  const aspectHint = FORMAT_ASPECT[format].hint;
-  const brandLine = brief ? `Brand: ${brand}. ${brief}.` : `Brand: ${brand}.`;
-  const styleHint = brandContext
-    ? ` Overall visual style: ${brandContext.visualStyle}.`
-    : '';
-  return (
-    `You are generating professional brand imagery. ${brandLine} ` +
-    `Scene: ${scenePrompt}.${styleHint} ` +
-    `Format: ${aspectHint}. ` +
-    `High quality, professional photography style, photorealistic. No text, no watermarks.`
-  );
+  // Use the Director's enriched prompt if available — it has better cinematography direction
+  const enrichedScene = brandContext?.scenes?.find((s) => s.index === sceneIndex);
+  const prompt = enrichedScene?.enrichedPrompt ?? scenePrompt;
+
+  const parts: string[] = [];
+
+  // Brand context as a natural introduction
+  if (brief) {
+    parts.push(`Professional brand photography for ${brand}. ${brief}.`);
+  } else {
+    parts.push(`Professional brand photography for ${brand}.`);
+  }
+
+  // The scene description — enriched if Director ran, raw otherwise
+  parts.push(prompt + '.');
+
+  // Layer in mood/style from Director if available
+  if (enrichedScene?.mood) parts.push(`Mood: ${enrichedScene.mood}.`);
+  if (brandContext?.visualStyle) parts.push(`Style: ${brandContext.visualStyle}.`);
+
+  parts.push(`Photorealistic, editorial photography. No text, no logos, no watermarks.`);
+
+  return parts.join(' ');
 }
 
 // ── Reference image discovery ────────────────────────────────────────────────
@@ -107,12 +120,18 @@ async function generateBrandImage(
       parts.push({ inlineData: { mimeType, data: buffer.toString('base64') } });
     }
 
-    parts.push({ text: buildBrandPrompt(scenePrompt, brand, brief, format, brandContext) });
+    parts.push({ text: buildBrandPrompt(scenePrompt, brand, brief, format, brandContext, sceneIndex) });
 
     const response = await ai.models.generateContent({
       model: MODEL,
       contents: [{ role: 'user', parts }],
-      config: { responseModalities: ['TEXT', 'IMAGE'] },
+      config: {
+        responseModalities: ['TEXT', 'IMAGE'],
+        imageConfig: {
+          aspectRatio: FORMAT_ASPECT[format].ratio,
+          imageSize: '2K',
+        },
+      },
     });
 
     // Extract first image block from response

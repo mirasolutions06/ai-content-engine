@@ -176,6 +176,10 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
     config = { ...config, cta: directorPlan.suggestedCta };
     logger.info(`Director: applying suggested CTA: "${directorPlan.suggestedCta.text}"`);
   }
+  if (directorPlan?.suggestedCaptionTheme !== undefined && config.captionTheme === undefined) {
+    config = { ...config, captionTheme: directorPlan.suggestedCaptionTheme };
+    logger.info(`Director: applying suggested captionTheme: "${directorPlan.suggestedCaptionTheme}"`);
+  }
 
   // ── Step 1: Generate voiceover ──────────────────────────────────────────
   // Director enriches the script with SSML pause tags and sets optimal voice settings.
@@ -263,8 +267,10 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
       logger.info(`[DRY RUN] Would generate storyboard frame for scene ${i + 1}: "${prompt.slice(0, 100)}..."`);
       costTracker.logStep('gemini-frame', false);
 
-      const klingKey = (clip.duration ?? 5) > 5 ? 'kling-10s' : 'kling-5s';
-      logger.info(`[DRY RUN] Would generate Kling ${klingKey} clip for scene ${i + 1}`);
+      const isV3 = config.klingVersion === 'v3';
+      const dur = (clip.duration ?? 5) > 5 ? '10s' : '5s';
+      const klingKey = isV3 ? `kling-v3-${dur}` : `kling-${dur}`;
+      logger.info(`[DRY RUN] Would generate Kling ${isV3 ? 'v3' : 'v2.1'} ${dur} clip for scene ${i + 1}`);
       costTracker.logStep(klingKey, false);
       continue;
     }
@@ -276,6 +282,9 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
       prompt,
       format: config.format,
       ...(directorPlan?.visualStyleSummary !== undefined && { visualStyleSummary: directorPlan.visualStyleSummary }),
+      ...(enrichedClipPlan?.lighting !== undefined && { lighting: enrichedClipPlan.lighting }),
+      ...(enrichedClipPlan?.colorGrade !== undefined && { colorGrade: enrichedClipPlan.colorGrade }),
+      ...(enrichedClipPlan?.cameraMove !== undefined && { cameraMove: enrichedClipPlan.cameraMove }),
       ...(previousLastFramePath !== undefined && { previousLastFramePath }),
       projectsRoot: PROJECTS_ROOT,
       projectName,
@@ -301,10 +310,18 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
     // Priority: Gemini-generated frame > pre-existing storyboard > config imageReference
     const imageRef = generatedFrame ?? storyboardFrame?.imagePath ?? clip.imageReference;
 
-    const clipPath = await generateFalClip(prompt, options, PROJECTS_ROOT, imageRef);
+    // Append Director's continuityNote to the Kling prompt for cross-clip visual consistency
+    const klingPrompt = enrichedClipPlan?.continuityNote
+      ? `${prompt}. ${enrichedClipPlan.continuityNote}`
+      : prompt;
+
+    // Pass previous clip's last frame as tail_image_url for seamless transitions
+    const clipPath = await generateFalClip(klingPrompt, options, PROJECTS_ROOT, imageRef, previousLastFramePath, config.klingVersion);
     clipPaths.push(clipPath);
     resultAssets.clips.push(clipPath);
-    costTracker.logStep((clip.duration ?? 5) > 5 ? 'kling-10s' : 'kling-5s', false);
+    const isV3Clip = config.klingVersion === 'v3';
+    const clipDur = (clip.duration ?? 5) > 5 ? '10s' : '5s';
+    costTracker.logStep(isV3Clip ? `kling-v3-${clipDur}` : `kling-${clipDur}`, false);
 
     // Capture last frame for next scene's Gemini generation
     const lastFramePath = path.join(

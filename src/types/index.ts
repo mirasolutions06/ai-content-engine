@@ -8,8 +8,10 @@ export type VideoFormat =
   | 'web-hero';
 
 export type CaptionStyle = 'word-by-word' | 'line-by-line';
+export type CaptionTheme = 'bold' | 'editorial' | 'minimal';
 export type TransitionType = 'crossfade' | 'cut' | 'wipe';
 export type AspectRatio = '9:16' | '16:9' | '1:1';
+export type KlingVersion = 'v2.1' | 'v3';
 
 // ─── Brand Image Types (from brand-pack merge) ───────────────────────────────
 
@@ -66,6 +68,8 @@ export interface VideoConfig {
   /** Default: word-by-word */
   captionStyle?: CaptionStyle;
   captionPosition?: 'bottom' | 'center' | 'top';
+  /** Caption visual theme. 'bold' = TikTok pill style, 'editorial' = clean luxury, 'minimal' = subtle. Default: 'bold' */
+  captionTheme?: CaptionTheme;
   /** Text shown at top of frame for first 2 seconds (hook) */
   hookText?: string;
   cta?: CTAConfig;
@@ -81,6 +85,12 @@ export interface VideoConfig {
   brief?: string;
   /** Image formats to generate in brand-images/full mode. Default: all three. */
   imageFormats?: ImageFormat[];
+  /** Kling model version. 'v2.1' (default, cheaper ~$0.49/5s) or 'v3' (better quality, multi-shot, ~$1.12/5s). */
+  klingVersion?: KlingVersion;
+  /** Apply a subtle brand-colored overlay on clips to unify color temperature. Default: false */
+  colorUnify?: boolean;
+  /** Opacity of the color unity overlay (0-1). Default: 0.06 */
+  colorUnifyOpacity?: number;
 }
 
 // ─── Video Generation ───────────────────────────────────────────────────────
@@ -190,6 +200,8 @@ export interface DirectorPlan {
   suggestedHookText?: string;
   /** Only set when config.cta was absent */
   suggestedCta?: { text: string; subtext?: string };
+  /** Only set when config.captionTheme was absent */
+  suggestedCaptionTheme?: CaptionTheme;
 }
 
 export interface DirectorCacheEntry {
@@ -206,6 +218,12 @@ export interface StoryboardGenOptions {
   format: VideoFormat;
   /** From DirectorPlan, for cross-scene consistency */
   visualStyleSummary?: string;
+  /** Director's lighting direction for this scene (e.g. "golden hour rim light") */
+  lighting?: string;
+  /** Director's color grade for this scene (e.g. "warm amber tones, lifted blacks") */
+  colorGrade?: string;
+  /** Director's camera move for this scene (e.g. "slow push-in on subject") */
+  cameraMove?: string;
   /** scene-(N-1)-lastframe.png if it exists */
   previousLastFramePath?: string;
   projectsRoot: string;
