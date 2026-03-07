@@ -1,0 +1,37 @@
+{
+  "name": "video-pipeline",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "new-project": "tsx src/cli/new-project.ts",
+    "pipeline": "tsx src/cli/run-pipeline.ts",
+    "remotion": "remotion studio",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@fal-ai/client": "^1.9.4",
+    "@google/genai": "^1.43.0",
+    "@remotion/bundler": "^4.0.0",
+    "@remotion/cli": "^4.0.0",
+    "@remotion/renderer": "^4.0.0",
+    "@remotion/transitions": "^4.0.0",
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.5",
+    "elevenlabs": "^0.16.0",
+    "fs-extra": "^11.2.0",
+    "openai": "^4.47.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "remotion": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/node": "^20.14.2",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.7",
+    "tsx": "^4.15.6",
+    "typescript": "^5.5.2"
+  }
+}

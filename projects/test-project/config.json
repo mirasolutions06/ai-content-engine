@@ -1,0 +1,16 @@
+{
+  "format": "youtube-short",
+  "title": "my-project",
+  "script": "",
+  "voiceId": "",
+  "clips": [
+    { "prompt": "", "duration": 5 },
+    { "prompt": "", "duration": 5 },
+    { "prompt": "", "duration": 5 }
+  ],
+  "transition": "cut",
+  "captions": true,
+  "captionStyle": "word-by-word",
+  "captionPosition": "bottom",
+  "music": false
+}

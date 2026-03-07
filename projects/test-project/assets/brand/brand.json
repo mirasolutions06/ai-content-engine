@@ -1,0 +1,110 @@
+{
+  "brand": "Nike",
+  "color_palette": {
+    "primary": [
+      {
+        "name": "Nike Black",
+        "hex": "#111111",
+        "rgb": [
+          17,
+          17,
+          17
+        ]
+      },
+      {
+        "name": "Nike White",
+        "hex": "#FFFFFF",
+        "rgb": [
+          255,
+          255,
+          255
+        ]
+      }
+    ],
+    "secondary": [
+      {
+        "name": "Nike Orange",
+        "hex": "#FA5400",
+        "rgb": [
+          250,
+          84,
+          0
+        ]
+      },
+      {
+        "name": "Volt",
+        "hex": "#CEFF00",
+        "rgb": [
+          206,
+          255,
+          0
+        ]
+      },
+      {
+        "name": "Sport Red",
+        "hex": "#E32636",
+        "rgb": [
+          227,
+          38,
+          54
+        ]
+      },
+      {
+        "name": "Royal Blue",
+        "hex": "#0033A0",
+        "rgb": [
+          0,
+          51,
+          160
+        ]
+      },
+      {
+        "name": "Cool Grey",
+        "hex": "#8D8D8D",
+        "rgb": [
+          141,
+          141,
+          141
+        ]
+      }
+    ],
+    "accent": [
+      {
+        "name": "Laser Crimson",
+        "hex": "#DC143C",
+        "rgb": [
+          220,
+          20,
+          60
+        ]
+      },
+      {
+        "name": "Hyper Jade",
+        "hex": "#00C9A7",
+        "rgb": [
+          0,
+          201,
+          167
+        ]
+      },
+      {
+        "name": "Psychic Purple",
+        "hex": "#7B68EE",
+        "rgb": [
+          123,
+          104,
+          238
+        ]
+      },
+      {
+        "name": "Total Orange",
+        "hex": "#FF6600",
+        "rgb": [
+          255,
+          102,
+          0
+        ]
+      }
+    ]
+  }
+}
