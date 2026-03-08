@@ -61,11 +61,16 @@ export async function generateStoryboardFrame(
   }
 
   const outputPath = getFramePath(options.projectsRoot, options.projectName, options.sceneIndex);
+  const outputPathJpg = outputPath.replace('.png', '.jpg');
 
-  // Idempotent — skip if already generated
+  // Idempotent — skip if already generated (Gemini may return PNG or JPEG)
   if (await fs.pathExists(outputPath)) {
     logger.skip(`Storyboard: scene-${options.sceneIndex}.png already exists.`);
     return outputPath;
+  }
+  if (await fs.pathExists(outputPathJpg)) {
+    logger.skip(`Storyboard: scene-${options.sceneIndex}.jpg already exists.`);
+    return outputPathJpg;
   }
 
   const isContinuation =
@@ -85,15 +90,35 @@ export async function generateStoryboardFrame(
     type TextPart = { text: string };
     const parts: Array<TextPart | InlineDataPart> = [];
 
+    // Include subject reference photo so Gemini knows what the product/subject looks like
+    if (options.subjectReferencePath && (await fs.pathExists(options.subjectReferencePath))) {
+      const refBuffer = await fs.readFile(options.subjectReferencePath);
+      const refIsPng = refBuffer[0] === 0x89 && refBuffer[1] === 0x50 && refBuffer[2] === 0x4E && refBuffer[3] === 0x47;
+      parts.push(
+        { text: '[SUBJECT REFERENCE — this is the product/subject that must appear accurately in the scene]' },
+        {
+          inlineData: {
+            mimeType: refIsPng ? 'image/png' : 'image/jpeg',
+            data: refBuffer.toString('base64'),
+          },
+        },
+      );
+    }
+
     // For continuations, prepend the previous clip's last frame so Gemini can see it
     if (isContinuation && options.previousLastFramePath) {
       const frameBuffer = await fs.readFile(options.previousLastFramePath);
-      parts.push({
-        inlineData: {
-          mimeType: 'image/png',
-          data: frameBuffer.toString('base64'),
+      // Detect actual format from magic bytes
+      const isPng = frameBuffer[0] === 0x89 && frameBuffer[1] === 0x50 && frameBuffer[2] === 0x4E && frameBuffer[3] === 0x47;
+      parts.push(
+        { text: '[PREVIOUS SCENE LAST FRAME — maintain visual continuity with this]' },
+        {
+          inlineData: {
+            mimeType: isPng ? 'image/png' : 'image/jpeg',
+            data: frameBuffer.toString('base64'),
+          },
         },
-      });
+      );
     }
 
     parts.push({ text: buildImagePrompt(options, isContinuation) });

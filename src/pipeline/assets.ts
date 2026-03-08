@@ -36,9 +36,9 @@ export class AssetLoader {
       this.loadOptional('assets/brand/font-bold.ttf', 'bold font'),
       this.loadOptional('assets/brand/font-regular.ttf', 'regular font'),
       this.loadBrandColors(),
-      this.loadOptional('assets/reference/style.png', 'style reference'),
-      this.loadOptional('assets/reference/subject.jpg', 'subject reference'),
-      this.loadOptional('assets/reference/location.png', 'location reference'),
+      this.loadOptionalMulti(['assets/reference/style.png', 'assets/reference/style.jpg'], 'style reference'),
+      this.loadOptionalMulti(['assets/reference/subject.jpg', 'assets/reference/subject.png'], 'subject reference'),
+      this.loadOptionalMulti(['assets/reference/location.png', 'assets/reference/location.jpg'], 'location reference'),
       this.loadOptional('assets/audio/music.mp3', 'background music'),
     ]);
 
@@ -73,15 +73,17 @@ export class AssetLoader {
     const files = await fs.readdir(storyboardDir);
     const frames: StoryboardFrame[] = [];
 
-    const sceneRegex = /^scene-(\d+)\.png$/;
+    const sceneRegex = /^scene-(\d+)\.(png|jpg)$/;
     for (const file of files) {
       const match = sceneRegex.exec(file);
       if (!match || !match[1]) continue;
 
       const sceneIndex = parseInt(match[1], 10);
       const imagePath = path.join(storyboardDir, file);
-      const lastFrameName = `scene-${sceneIndex}-lastframe.png`;
-      const lastFrameFullPath = path.join(storyboardDir, lastFrameName);
+      // Check for lastframe in either format
+      const lastFramePng = path.join(storyboardDir, `scene-${sceneIndex}-lastframe.png`);
+      const lastFrameJpg = path.join(storyboardDir, `scene-${sceneIndex}-lastframe.jpg`);
+      const lastFrameFullPath = (await fs.pathExists(lastFramePng)) ? lastFramePng : lastFrameJpg;
       const hasLastFrame = await fs.pathExists(lastFrameFullPath);
 
       frames.push(
@@ -122,6 +124,18 @@ export class AssetLoader {
       logger.warn('brand.json is invalid JSON — using default colors.');
       return undefined;
     }
+  }
+
+  /**
+   * Tries multiple candidate paths for an asset, returning the first that exists.
+   */
+  private async loadOptionalMulti(relativePaths: string[], label: string): Promise<string | undefined> {
+    for (const rel of relativePaths) {
+      const fullPath = path.join(this.projectDir, rel);
+      if (await fs.pathExists(fullPath)) return fullPath;
+    }
+    logger.warn(`Optional asset not found: ${label} (${relativePaths[0]})`);
+    return undefined;
   }
 
   /**

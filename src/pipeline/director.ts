@@ -31,7 +31,7 @@ OUTPUT FORMAT — return ONLY this JSON object, nothing else:
       "continuityNote": "<for scene 1: describe the visual cold-open; for scene 2+: reference a specific visual element from the previous clip>",
       "cameraMove": "<e.g. slow push-in on subject face>",
       "lighting": "<e.g. golden hour rim light, soft fill, deep shadows>",
-      "colorGrade": "<e.g. desaturated blues, lifted blacks, warm orange skin tones>",
+      "colorGrade": "<descriptive color words ONLY, e.g. desaturated blues, lifted blacks, warm orange skin tones — NEVER include hex codes>",
       "pace": "<e.g. hold 5s static — no movement, let scene breathe>"
     }
   ],
@@ -52,7 +52,7 @@ STRICT RULES:
    - Describe ONE clear subject with specific material/texture cues (e.g. "raw golden shea butter with a matte, grainy texture")
    - Specify depth of field (e.g. "shallow depth of field, f/1.8 bokeh background")
    - Include lighting direction and quality (e.g. "warm side-light from the left, soft diffused fill")
-   - Add color palette cues (e.g. "earth tones with warm amber highlights against deep chocolate shadows")
+   - Add color palette cues using descriptive color words ONLY (e.g. "earth tones with warm amber highlights against deep chocolate shadows"). NEVER include hex color codes like #D4AF37 — AI image generators render hex codes as visible text on the image.
    - Mention camera perspective naturally (e.g. "close-up from slightly above" not just "macro lens")
    - NEVER use generic filler like "masterpiece, best quality, 4k, trending" — be specific and descriptive
    - Write as a natural scene description, not a keyword list
@@ -158,8 +158,9 @@ async function encodeImageForClaude(
   try {
     const buffer = await fs.readFile(imagePath);
     const base64 = buffer.toString('base64');
-    const ext = path.extname(imagePath).toLowerCase();
-    const mediaType = ext === '.png' ? 'image/png' : 'image/jpeg';
+    // Detect actual format from magic bytes, not file extension
+    const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+    const mediaType = isPng ? 'image/png' : 'image/jpeg';
     return {
       type: 'image',
       source: { type: 'base64', media_type: mediaType, data: base64 },

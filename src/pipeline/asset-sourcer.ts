@@ -60,8 +60,9 @@ async function extractColorsFromImage(imagePath: string): Promise<BrandColors | 
   try {
     const ai = new GoogleGenAI({ apiKey });
     const buffer = await fs.readFile(imagePath);
-    const ext = path.extname(imagePath).toLowerCase();
-    const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
+    // Detect actual format from magic bytes, not file extension
+    const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+    const mimeType = isPng ? 'image/png' : 'image/jpeg';
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -144,10 +145,12 @@ async function generateReferenceImage(
     });
 
     let imageData: string | null = null;
+    let imageMime = 'image/png';
     outer: for (const candidate of response.candidates ?? []) {
       for (const part of candidate.content?.parts ?? []) {
         if ((part as InlineDataPart).inlineData?.data) {
           imageData = (part as InlineDataPart).inlineData.data;
+          imageMime = (part as InlineDataPart).inlineData.mimeType ?? 'image/png';
           break outer;
         }
       }
@@ -156,8 +159,17 @@ async function generateReferenceImage(
     if (!imageData) throw new Error('Gemini returned no image data');
 
     await fs.ensureDir(path.dirname(outputPath));
-    await fs.writeFile(outputPath, Buffer.from(imageData, 'base64'));
-    logger.success(`Asset sourcer: ${label} saved to ${path.basename(outputPath)}`);
+
+    // Save with correct extension matching actual image format
+    const isJpeg = imageMime.includes('jpeg') || imageMime.includes('jpg');
+    if (isJpeg && outputPath.endsWith('.png')) {
+      const jpgPath = outputPath.replace('.png', '.jpg');
+      await fs.writeFile(jpgPath, Buffer.from(imageData, 'base64'));
+      logger.success(`Asset sourcer: ${label} saved to ${path.basename(jpgPath)}`);
+    } else {
+      await fs.writeFile(outputPath, Buffer.from(imageData, 'base64'));
+      logger.success(`Asset sourcer: ${label} saved to ${path.basename(outputPath)}`);
+    }
     return true;
   } catch (err) {
     logger.warn(`Asset sourcer: ${label} generation failed: ${String(err)}`);
@@ -482,9 +494,10 @@ export async function sourceAssets(
 
   // ── 3. Location Reference ───────────────────────────────────────────────────
   const locationPath = path.join(assetsDir, 'reference', 'location.png');
+  const locationPathJpg = path.join(assetsDir, 'reference', 'location.jpg');
 
-  if (await fs.pathExists(locationPath)) {
-    logger.skip('Asset sourcer: location.png already exists — skipping.');
+  if (await fs.pathExists(locationPath) || await fs.pathExists(locationPathJpg)) {
+    logger.skip('Asset sourcer: location reference already exists — skipping.');
     result.locationReferenceSourced = true;
     result.locationSource = 'existing';
   } else {

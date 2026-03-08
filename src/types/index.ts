@@ -226,6 +226,8 @@ export interface StoryboardGenOptions {
   cameraMove?: string;
   /** scene-(N-1)-lastframe.png if it exists */
   previousLastFramePath?: string;
+  /** Product/subject reference photo — gives Gemini visual context for the product appearance */
+  subjectReferencePath?: string;
   projectsRoot: string;
   projectName: string;
 }

@@ -286,6 +286,7 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
       ...(enrichedClipPlan?.colorGrade !== undefined && { colorGrade: enrichedClipPlan.colorGrade }),
       ...(enrichedClipPlan?.cameraMove !== undefined && { cameraMove: enrichedClipPlan.cameraMove }),
       ...(previousLastFramePath !== undefined && { previousLastFramePath }),
+      ...(assets.subjectReference !== undefined && { subjectReferencePath: assets.subjectReference }),
       projectsRoot: PROJECTS_ROOT,
       projectName,
     });

@@ -115,8 +115,9 @@ async function generateBrandImage(
     // Include reference image if provided
     if (referenceImagePath && (await fs.pathExists(referenceImagePath))) {
       const buffer = await fs.readFile(referenceImagePath);
-      const ext = path.extname(referenceImagePath).toLowerCase();
-      const mimeType = ext === '.png' ? 'image/png' : 'image/jpeg';
+      // Detect actual format from magic bytes, not file extension
+      const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+      const mimeType = isPng ? 'image/png' : 'image/jpeg';
       parts.push({ inlineData: { mimeType, data: buffer.toString('base64') } });
     }
 

@@ -111,13 +111,13 @@ Generate Gemini storyboard frames without calling Kling. This costs ~$0.05 per f
 npm start -- --project {name} --storyboard-only
 ```
 
-After completion, list the generated frames:
+After completion, list the generated frames (Gemini may return PNG or JPEG):
 ```
 Storyboard frames generated:
-  projects/{name}/assets/storyboard/scene-1.png
-  projects/{name}/assets/storyboard/scene-2.png
-  projects/{name}/assets/storyboard/scene-3.png
-  projects/{name}/assets/storyboard/scene-4.png
+  projects/{name}/assets/storyboard/scene-1.jpg
+  projects/{name}/assets/storyboard/scene-2.jpg
+  projects/{name}/assets/storyboard/scene-3.jpg
+  projects/{name}/assets/storyboard/scene-4.jpg
 
 Review the frames. Each one will become a 5-second video clip via Kling.
 Cost per clip: v2.1 ~$0.49 (default) | v3 ~$1.12 (higher quality).
@@ -247,9 +247,9 @@ This is the most common scenario after the first full generation: one scene look
 The user doesn't like how scene 3 looks in the storyboard preview.
 
 1. **If the prompt needs changing:** Edit `config.json` to update the clip prompt for scene 3.
-2. Delete the specific frame:
+2. Delete the specific frame (check for both `.png` and `.jpg` — Gemini may return either format):
    ```bash
-   rm projects/{name}/assets/storyboard/scene-3.png
+   rm projects/{name}/assets/storyboard/scene-3.png projects/{name}/assets/storyboard/scene-3.jpg 2>/dev/null
    ```
 3. Re-run storyboard-only:
    ```bash
@@ -300,13 +300,13 @@ Then re-run. The Director will also regenerate `cache/brand-context.json`.
 
 | What to fix | Delete | Re-run command | Cost |
 |---|---|---|---|
-| One storyboard frame | `assets/storyboard/scene-{N}.png` | `--storyboard-only` | ~$0.05 |
+| One storyboard frame | `assets/storyboard/scene-{N}.png` or `.jpg` | `--storyboard-only` | ~$0.05 |
 | One video clip (v2.1) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$0.49-0.90 |
 | One video clip (v3) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$1.12-2.24 |
 | Voiceover | Nothing (hash auto-detects script change) | `--json-output` | ~$0.50 |
 | Director plan | `cache/director-plan.json` | `--json-output` | ~$0.10 |
 | Brand colors | `assets/brand/brand.json` | `--json-output` | ~$0.01-0.02 |
-| Style reference | `assets/reference/style.jpg` | `--json-output` | ~$0.05 |
+| Style reference | `assets/reference/style.png` or `.jpg` | `--json-output` | ~$0.05 |
 | Everything | `cache/` and `output/` directories | `--json-output` | Full cost |
 
 ## Re-running Full Projects
