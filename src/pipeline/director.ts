@@ -33,7 +33,7 @@ OUTPUT FORMAT — return ONLY this JSON object, nothing else:
       "shotType": "<'extreme-close-up' | 'close-up' | 'medium' | 'wide' | 'detail'>",
       "enrichedPrompt": "<scene description rewritten for AI image generation — see rules below>",
       "continuityNote": "<what connects this shot to the previous one visually>",
-      "cameraMove": "<e.g. slow push-in on subject>",
+      "cameraMove": "<SHORT motion description for video animation, e.g. 'slow gentle push-in, hands crack open a nut'. Max 80 chars. Describe WHAT MOVES and HOW, not the scene. Keep motion MINIMAL — subtle drift, slow zoom, gentle push. Avoid complex multi-step movements.>",
       "lighting": "<MUST reference the global lightingSetup — same direction, same quality, just describe what it does in THIS shot>",
       "colorGrade": "<MUST match global colorPalette — describe how it manifests in THIS specific shot>",
       "pace": "<e.g. hold 5s static — let the texture breathe>"

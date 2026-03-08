@@ -321,10 +321,20 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
     // Priority: Gemini-generated frame > pre-existing storyboard > config imageReference
     const imageRef = generatedFrame ?? storyboardFrame?.imagePath ?? clip.imageReference;
 
-    // Append Director's continuityNote to the Kling prompt for cross-clip visual consistency
-    const klingPrompt = enrichedClipPlan?.continuityNote
-      ? `${prompt}. ${enrichedClipPlan.continuityNote}`
-      : prompt;
+    // Build Kling prompt: in image-to-video mode, Kling already HAS the scene as an image.
+    // Sending a long scene description causes morphing/confusion. Instead, send a SHORT
+    // motion-focused prompt built from the Director's cameraMove field.
+    // In text-to-video mode (no image), send the full enriched scene description.
+    let klingPrompt: string;
+    if (imageRef !== undefined && enrichedClipPlan?.cameraMove) {
+      // Image-to-video: motion-only prompt (what moves, not what the scene looks like)
+      klingPrompt = `${enrichedClipPlan.cameraMove}. Smooth subtle motion, photorealistic, cinematic.`;
+    } else {
+      // Text-to-video fallback: needs the full scene description
+      klingPrompt = enrichedClipPlan?.continuityNote
+        ? `${prompt}. ${enrichedClipPlan.continuityNote}`
+        : prompt;
+    }
 
     // Pass previous clip's last frame as tail_image_url for seamless transitions
     const clipPath = await generateFalClip(klingPrompt, options, PROJECTS_ROOT, imageRef, previousLastFramePath, config.klingVersion);

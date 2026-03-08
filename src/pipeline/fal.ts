@@ -28,7 +28,7 @@ interface FalKlingOutput {
   video: { url: string };
 }
 
-const NEGATIVE_PROMPT = 'camera shake, flickering, inconsistent lighting, motion blur, duplicate subject, text, logos, watermarks, blurry, distorted';
+const NEGATIVE_PROMPT = 'camera shake, flickering, morphing, shape shifting, melting, distortion, jitter, inconsistent lighting, motion blur, duplicate subject, extra limbs, extra fingers, text, logos, watermarks, blurry, low quality, fast movement, abrupt changes';
 
 /** Multi-shot prompt element for Kling v3 */
 export interface MultiShotPrompt {
@@ -127,7 +127,9 @@ async function generateImageToVideo(
     duration: options.duration > 5 ? '10' : '5',
     aspect_ratio: options.aspectRatio,
     negative_prompt: NEGATIVE_PROMPT,
-    cfg_scale: 0.65,
+    // Higher cfg_scale in i2v mode keeps the output closer to the storyboard frame
+    // (less morphing/deviation). 0.5 = balanced fidelity + motion.
+    cfg_scale: 0.5,
   };
 
   if (tailImagePath && (await fs.pathExists(tailImagePath))) {
@@ -167,7 +169,7 @@ async function generateV3ImageToVideo(
     duration: options.duration > 5 ? '10' : '5',
     aspect_ratio: options.aspectRatio,
     negative_prompt: NEGATIVE_PROMPT,
-    cfg_scale: 0.65,
+    cfg_scale: 0.5,
     generate_audio: false, // avoid unexpected audio charges
   };
 
