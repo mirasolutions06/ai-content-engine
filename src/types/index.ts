@@ -91,6 +91,8 @@ export interface VideoConfig {
   colorUnify?: boolean;
   /** Opacity of the color unity overlay (0-1). Default: 0.06 */
   colorUnifyOpacity?: number;
+  /** Apply global CSS color grade filter to clips. Default: true. Set false to disable. */
+  colorGrade?: boolean;
 }
 
 // ─── Video Generation ───────────────────────────────────────────────────────
@@ -181,6 +183,8 @@ export interface DirectorVoiceSettings {
 
 export interface DirectorClipPlan {
   sceneIndex: number;
+  /** Shot framing type for progressive reveal structure */
+  shotType?: string;
   /** Original prompt + " — " + cinematography notes. Max 400 chars. */
   enrichedPrompt: string;
   continuityNote: string;
@@ -194,6 +198,12 @@ export interface DirectorPlan {
   generatedAt: string;
   configHash: string;
   visualStyleSummary: string;
+  /** Global lighting setup — same for ALL scenes to ensure one-shoot consistency */
+  lightingSetup?: string;
+  /** Global background/environment — same for ALL scenes */
+  backgroundDescription?: string;
+  /** Global color palette — same for ALL scenes (descriptive words only, never hex codes) */
+  colorPalette?: string;
   clips: DirectorClipPlan[];
   voice: DirectorVoiceSettings;
   /** Only set when config.hookText was absent */
@@ -218,6 +228,12 @@ export interface StoryboardGenOptions {
   format: VideoFormat;
   /** From DirectorPlan, for cross-scene consistency */
   visualStyleSummary?: string;
+  /** Director's global lighting setup for consistency across all scenes */
+  lightingSetup?: string;
+  /** Director's global background description for consistency across all scenes */
+  backgroundDescription?: string;
+  /** Director's global color palette for consistency across all scenes */
+  colorPalette?: string;
   /** Director's lighting direction for this scene (e.g. "golden hour rim light") */
   lighting?: string;
   /** Director's color grade for this scene (e.g. "warm amber tones, lifted blacks") */
@@ -228,6 +244,8 @@ export interface StoryboardGenOptions {
   previousLastFramePath?: string;
   /** Product/subject reference photo — gives Gemini visual context for the product appearance */
   subjectReferencePath?: string;
+  /** Scene 1 storyboard frame — used as style anchor for ALL subsequent frames */
+  scene1AnchorPath?: string;
   projectsRoot: string;
   projectName: string;
 }

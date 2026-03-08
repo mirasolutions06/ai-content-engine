@@ -15,6 +15,8 @@ import { CaptionTrack } from '../components/CaptionTrack.js';
 import { Logo } from '../components/Logo.js';
 import { LowerThird } from '../components/LowerThird.js';
 import { Outro } from '../components/Outro.js';
+import { FilmGrain } from '../components/FilmGrain.js';
+import { Vignette } from '../components/Vignette.js';
 import { secondsToFrames } from '../helpers/timing.js';
 import type { CompositionProps } from '../../types/index.js';
 
@@ -59,30 +61,37 @@ export const Ad: React.FC<CompositionProps> = ({
     [captions, fps, musicVolume, durationInFrames],
   );
 
+  // Global color grade CSS filter
+  const colorGradeFilter = config.colorGrade !== false
+    ? 'contrast(1.08) saturate(1.1) brightness(0.97) sepia(0.08)'
+    : 'none';
+
   return (
     <AbsoluteFill style={{ backgroundColor: '#000' }}>
-      {/* Video clips */}
-      <TransitionSeries>
-        {clipPaths.map((clipPath, i) => {
-          const clip = config.clips[i];
-          const clipDuration = secondsToFrames(clip?.duration ?? 5, fps);
-          const isLastClip = i === clipPaths.length - 1;
+      {/* Video clips — wrapped in color grade filter */}
+      <AbsoluteFill style={{ filter: colorGradeFilter }}>
+        <TransitionSeries>
+          {clipPaths.map((clipPath, i) => {
+            const clip = config.clips[i];
+            const clipDuration = secondsToFrames(clip?.duration ?? 5, fps);
+            const isLastClip = i === clipPaths.length - 1;
 
-          return (
-            <React.Fragment key={clipPath}>
-              <TransitionSeries.Sequence durationInFrames={clipDuration}>
-                <VideoScene clipPath={clipPath} volume={0} />
-              </TransitionSeries.Sequence>
-              {!isLastClip && transition !== null && (
-                <TransitionSeries.Transition
-                  timing={transition.timing}
-                  presentation={transition.presentation}
-                />
-              )}
-            </React.Fragment>
-          );
-        })}
-      </TransitionSeries>
+            return (
+              <React.Fragment key={clipPath}>
+                <TransitionSeries.Sequence durationInFrames={clipDuration}>
+                  <VideoScene clipPath={clipPath} volume={0} sceneIndex={i} />
+                </TransitionSeries.Sequence>
+                {!isLastClip && transition !== null && (
+                  <TransitionSeries.Transition
+                    timing={transition.timing}
+                    presentation={transition.presentation}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
+        </TransitionSeries>
+      </AbsoluteFill>
 
       {/* Optional brand color unity overlay */}
       {config.colorUnify === true && assets.brandColors?.primary !== undefined && (
@@ -97,6 +106,10 @@ export const Ad: React.FC<CompositionProps> = ({
           }}
         />
       )}
+
+      {/* Vignette + Film grain for visual coherence */}
+      <Vignette intensity={0.4} />
+      <FilmGrain opacity={0.05} />
 
       {/* Voiceover — primary audio track at full volume */}
       {voiceoverPath !== undefined && (

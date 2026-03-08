@@ -102,15 +102,41 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
 
 ### Scene Prompt Rules
 
-These are critical. Bad prompts waste expensive API calls.
+These are critical. Bad prompts waste expensive API calls. **The #1 quality issue is scenes that look like 4 different clips glued together.** Follow these rules to produce visually coherent content.
+
+#### Visual Consistency (MOST IMPORTANT)
+
+ALL scenes must share the SAME:
+- **Lighting direction** — pick ONE setup (e.g. "soft window light from camera-left") and use it in every prompt
+- **Background/surface** — pick ONE setting (e.g. "clean white marble surface") and repeat it
+- **Color temperature** — pick ONE palette (e.g. "warm amber tones, muted highlights") and keep it consistent
+- **Subject** — the same product/person must appear in EVERY scene
+
+The Director AI enforces this with global `lightingSetup`, `backgroundDescription`, and `colorPalette` fields. Your prompts should already be consistent so the Director has good material to work with.
+
+#### Progressive Reveal Shot Framework
+
+Structure scenes as a single continuous photo shoot where only the camera distance changes:
+
+| Scene | Shot Type | Purpose | Example |
+|---|---|---|---|
+| 1 (Hook) | Extreme close-up or detail | Sensory curiosity — stop the scroll | "Extreme close-up of golden serum drops on fingertip" |
+| 2 (Context) | Close-up | Reveal more — what IS this? | "Close-up of hands holding the serum bottle" |
+| 3 (Hero) | Medium or wide | Money shot — full product in context | "Medium shot of the bottle on marble surface with botanicals" |
+| 4 (CTA) | Detail or medium | Reinforce desire — support the call to action | "Detail shot of serum texture catching the light" |
+
+This mirrors how professional product shoots work: same subject, same set, same lighting, different focal lengths.
+
+#### Prompt Writing Rules
 
 1. **Length**: 50-300 characters per prompt. Under 50 = too vague for Kling. Over 400 = gets truncated.
 2. **NO text/logos/typography**: AI video cannot render readable text. Never include words like "text", "logo", "typography", "font", "write", "writing", "saying", "reads", "letter", "word", "headline" in scene prompts.
 3. **Visual style cues required**: Every prompt must include at least one style keyword: lighting, light, shadow, cinematic, mood, tone, color, warm, cool, dark, bright, soft, dramatic, golden, neon, pastel, muted, vibrant, editorial, minimal, luxury, gritty, bokeh, ambient, backlit, silhouette.
 4. **One moment per prompt**: Describe a single clear visual moment, not a sequence. "Woman applying serum in golden light" not "Woman picks up serum, applies it, then smiles."
-5. **First scene = the hook**: The most visually striking, attention-grabbing scene goes first. This is what stops the scroll.
-6. **Last scene = supports CTA**: The final scene should complement the call to action (e.g. product on display, satisfied customer, brand moment).
-7. **Typical clip count**: 3-5 clips is standard. Each 5s clip costs ~$1.05 (storyboard + Kling). Warn if proposing >6 clips.
+5. **Repeat the lighting setup**: Mention the SAME lighting in every prompt (e.g. "soft diffused window light from camera-left" in all 4 scenes).
+6. **Repeat the background**: Mention the SAME surface/environment in every prompt (e.g. "on white marble surface" in all 4 scenes).
+7. **Vary only the camera**: Each scene should differ only in camera distance (extreme close-up, close-up, medium, wide, detail).
+8. **Typical clip count**: 3-5 clips is standard. Each 5s clip costs ~$1.05 (storyboard + Kling). Warn if proposing >6 clips.
 
 ### Step 5: Validate Before Saving
 
@@ -214,19 +240,19 @@ Next steps:
   "voiceId": "USER_MUST_SPECIFY",
   "clips": [
     {
-      "prompt": "Extreme close-up of a single golden serum drop falling in slow motion against soft warm backlight, luxury minimal aesthetic, shallow depth of field, amber tones",
+      "prompt": "Extreme close-up of a single golden serum drop falling from the dropper in slow motion, soft diffused window light from camera-left, clean white marble surface, warm amber tones, shallow depth of field",
       "duration": 5
     },
     {
-      "prompt": "Hands gently holding an elegant frosted glass serum bottle, soft diffused natural window light, clean white marble surface, editorial beauty photography style, muted warm palette",
+      "prompt": "Close-up of hands gently holding the frosted glass serum bottle, soft diffused window light from camera-left, clean white marble surface, warm amber tones, editorial beauty photography",
       "duration": 5
     },
     {
-      "prompt": "Woman with glowing dewy skin touching her face softly, golden hour side lighting creating a warm rim glow, soft bokeh background, cinematic shallow focus, luxury skincare mood",
+      "prompt": "Medium shot of the serum bottle standing on the marble surface with fresh botanicals arranged around it, soft diffused window light from camera-left, warm amber tones, luxury product photography",
       "duration": 5
     },
     {
-      "prompt": "Flat lay of the serum bottle surrounded by fresh botanical ingredients — lavender, rosemary, citrus slices — on natural linen, soft overhead diffused lighting, editorial product photography",
+      "prompt": "Detail shot of serum texture glistening on fingertips, the bottle softly blurred in the background on marble, soft diffused window light from camera-left, warm amber tones, shallow focus",
       "duration": 5
     }
   ],

@@ -227,6 +227,7 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
   // ── Step 3: Generate video clips ─────────────────────────────────────────
   const clipPaths: string[] = [];
   let previousLastFramePath: string | undefined = undefined;
+  let scene1AnchorPath: string | undefined = undefined;
 
   for (let i = 0; i < config.clips.length; i++) {
     const clip = config.clips[i];
@@ -282,15 +283,24 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
       prompt,
       format: config.format,
       ...(directorPlan?.visualStyleSummary !== undefined && { visualStyleSummary: directorPlan.visualStyleSummary }),
+      ...(directorPlan?.lightingSetup !== undefined && { lightingSetup: directorPlan.lightingSetup }),
+      ...(directorPlan?.backgroundDescription !== undefined && { backgroundDescription: directorPlan.backgroundDescription }),
+      ...(directorPlan?.colorPalette !== undefined && { colorPalette: directorPlan.colorPalette }),
       ...(enrichedClipPlan?.lighting !== undefined && { lighting: enrichedClipPlan.lighting }),
       ...(enrichedClipPlan?.colorGrade !== undefined && { colorGrade: enrichedClipPlan.colorGrade }),
       ...(enrichedClipPlan?.cameraMove !== undefined && { cameraMove: enrichedClipPlan.cameraMove }),
       ...(previousLastFramePath !== undefined && { previousLastFramePath }),
       ...(assets.subjectReference !== undefined && { subjectReferencePath: assets.subjectReference }),
+      ...(scene1AnchorPath !== undefined && { scene1AnchorPath }),
       projectsRoot: PROJECTS_ROOT,
       projectName,
     });
     costTracker.logStep('gemini-frame', generatedFrame === null);
+
+    // Scene 1's generated frame becomes the style anchor for all subsequent scenes
+    if (i === 0 && generatedFrame !== null) {
+      scene1AnchorPath = generatedFrame;
+    }
 
     // Storyboard-only mode: skip video generation for this clip
     if (runOpts?.storyboardOnly === true) {

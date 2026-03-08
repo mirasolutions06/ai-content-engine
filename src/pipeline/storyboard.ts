@@ -16,23 +16,29 @@ function getGeminiAspectRatio(format: StoryboardGenOptions['format']): string {
   return '16:9';
 }
 
-function buildImagePrompt(options: StoryboardGenOptions, isContinuation: boolean): string {
-  // Build a natural scene description using all available Director fields
+function buildImagePrompt(options: StoryboardGenOptions, hasAnchor: boolean): string {
   const parts: string[] = [];
 
-  if (isContinuation) {
+  // For scenes 2+, strongly enforce visual consistency with the anchor frame
+  if (hasAnchor) {
     parts.push(
-      `Generate a cinematic still frame that visually continues from the previous image above.`,
-      `Maintain the same subject appearance, lighting direction, color palette, and atmosphere.`,
+      `Generate a cinematic still frame that belongs to the SAME photo shoot as the reference images above.`,
+      `CRITICAL: Use the EXACT same lighting direction, color temperature, background surface, and atmosphere as Scene 1 above.`,
+      `Only change the camera distance/angle and what part of the subject is in focus.`,
     );
   }
 
   // The enriched prompt is the core — it already contains the scene + cinematography from the Director
   parts.push(options.prompt + '.');
 
-  // Layer in Director fields that aren't already in the enriched prompt
-  if (options.lighting) parts.push(`Lighting: ${options.lighting}.`);
-  if (options.colorGrade) parts.push(`Color palette: ${options.colorGrade}.`);
+  // Global consistency fields from Director (reinforces the enriched prompt)
+  if (options.lightingSetup) parts.push(`Lighting setup: ${options.lightingSetup}.`);
+  if (options.backgroundDescription) parts.push(`Background: ${options.backgroundDescription}.`);
+  if (options.colorPalette) parts.push(`Color palette: ${options.colorPalette}.`);
+
+  // Per-scene Director fields (for scene-specific details)
+  if (options.lighting && !options.lightingSetup) parts.push(`Lighting: ${options.lighting}.`);
+  if (options.colorGrade && !options.colorPalette) parts.push(`Color palette: ${options.colorGrade}.`);
   if (options.cameraMove) parts.push(`Framing: ${options.cameraMove}.`);
   if (options.visualStyleSummary) parts.push(`Style: ${options.visualStyleSummary}.`);
 
@@ -42,11 +48,32 @@ function buildImagePrompt(options: StoryboardGenOptions, isContinuation: boolean
 }
 
 /**
- * Generates a storyboard starting frame for a scene using Gemini 2.0 Flash.
+ * Encodes an image file as an inline data part for Gemini.
+ * Detects PNG vs JPEG from magic bytes.
+ */
+async function encodeImagePart(
+  filePath: string,
+): Promise<{ inlineData: { mimeType: string; data: string } }> {
+  const buffer = await fs.readFile(filePath);
+  const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+  return {
+    inlineData: {
+      mimeType: isPng ? 'image/png' : 'image/jpeg',
+      data: buffer.toString('base64'),
+    },
+  };
+}
+
+/**
+ * Generates a storyboard starting frame for a scene using Gemini.
  *
- * For scene 1: text prompt only.
- * For scene N>1: includes the previous clip's last frame as visual context,
- *   giving Gemini the ability to maintain subject, lighting, and color continuity.
+ * Visual consistency strategy:
+ * - Subject reference photo is included in EVERY scene call
+ * - Scene 1's generated frame is used as a STYLE ANCHOR for scenes 2+
+ *   (this is the key to making all frames feel like one shoot)
+ * - Previous clip's last frame provides motion continuity for Kling
+ * - Director's global fields (lightingSetup, backgroundDescription, colorPalette)
+ *   are included in every prompt to reinforce consistency
  *
  * Non-fatal — returns null if GEMINI_API_KEY is not set or the call fails.
  * Idempotent — skips generation if the output file already exists on disk.
@@ -73,13 +100,18 @@ export async function generateStoryboardFrame(
     return outputPathJpg;
   }
 
-  const isContinuation =
+  const hasScene1Anchor =
+    options.scene1AnchorPath !== undefined &&
+    (await fs.pathExists(options.scene1AnchorPath));
+
+  const hasPreviousFrame =
     options.previousLastFramePath !== undefined &&
     (await fs.pathExists(options.previousLastFramePath));
 
   logger.step(
-    `Storyboard: generating scene-${options.sceneIndex}.png` +
-    (isContinuation ? ` (continuing from scene ${options.sceneIndex - 1} last frame)` : '') +
+    `Storyboard: generating scene-${options.sceneIndex}` +
+    (hasScene1Anchor ? ' (anchored to scene 1 style)' : '') +
+    (hasPreviousFrame ? ` (+ scene ${options.sceneIndex - 1} continuity)` : '') +
     `...`,
   );
 
@@ -90,38 +122,35 @@ export async function generateStoryboardFrame(
     type TextPart = { text: string };
     const parts: Array<TextPart | InlineDataPart> = [];
 
-    // Include subject reference photo so Gemini knows what the product/subject looks like
+    // 1. Subject reference photo — what the product/subject actually looks like
     if (options.subjectReferencePath && (await fs.pathExists(options.subjectReferencePath))) {
-      const refBuffer = await fs.readFile(options.subjectReferencePath);
-      const refIsPng = refBuffer[0] === 0x89 && refBuffer[1] === 0x50 && refBuffer[2] === 0x4E && refBuffer[3] === 0x47;
       parts.push(
-        { text: '[SUBJECT REFERENCE — this is the product/subject that must appear accurately in the scene]' },
-        {
-          inlineData: {
-            mimeType: refIsPng ? 'image/png' : 'image/jpeg',
-            data: refBuffer.toString('base64'),
-          },
-        },
+        { text: '[SUBJECT REFERENCE — this is the product/subject that must appear accurately in every scene]' },
+        await encodeImagePart(options.subjectReferencePath),
       );
     }
 
-    // For continuations, prepend the previous clip's last frame so Gemini can see it
-    if (isContinuation && options.previousLastFramePath) {
-      const frameBuffer = await fs.readFile(options.previousLastFramePath);
-      // Detect actual format from magic bytes
-      const isPng = frameBuffer[0] === 0x89 && frameBuffer[1] === 0x50 && frameBuffer[2] === 0x4E && frameBuffer[3] === 0x47;
+    // 2. Scene 1 anchor — THE style reference for all subsequent frames
+    //    This is the most important visual consistency mechanism: scene 1 defines
+    //    the lighting, color temperature, background, and overall mood. All subsequent
+    //    frames must match it exactly, only varying camera distance/angle.
+    if (hasScene1Anchor && options.scene1AnchorPath) {
       parts.push(
-        { text: '[PREVIOUS SCENE LAST FRAME — maintain visual continuity with this]' },
-        {
-          inlineData: {
-            mimeType: isPng ? 'image/png' : 'image/jpeg',
-            data: frameBuffer.toString('base64'),
-          },
-        },
+        { text: '[SCENE 1 — this is the STYLE ANCHOR. Match this frame\'s lighting direction, color temperature, background surface, and atmosphere EXACTLY. Only change camera distance and angle.]' },
+        await encodeImagePart(options.scene1AnchorPath),
       );
     }
 
-    parts.push({ text: buildImagePrompt(options, isContinuation) });
+    // 3. Previous clip's last frame — for Kling motion continuity
+    if (hasPreviousFrame && options.previousLastFramePath) {
+      parts.push(
+        { text: '[PREVIOUS SCENE LAST FRAME — maintain visual continuity with this for smooth transition]' },
+        await encodeImagePart(options.previousLastFramePath),
+      );
+    }
+
+    // 4. The text prompt with global consistency fields baked in
+    parts.push({ text: buildImagePrompt(options, hasScene1Anchor) });
 
     const response = await ai.models.generateContent({
       model: MODEL,

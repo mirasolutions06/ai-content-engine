@@ -15,6 +15,8 @@ import { CaptionTrack } from '../components/CaptionTrack.js';
 import { HookText } from '../components/HookText.js';
 import { Logo } from '../components/Logo.js';
 import { Outro } from '../components/Outro.js';
+import { FilmGrain } from '../components/FilmGrain.js';
+import { Vignette } from '../components/Vignette.js';
 import { secondsToFrames } from '../helpers/timing.js';
 import type { CompositionProps } from '../../types/index.js';
 
@@ -56,30 +58,38 @@ export const YoutubeShort: React.FC<CompositionProps> = ({
     [captions, fps, musicVolume, durationInFrames],
   );
 
+  // Global color grade CSS filter — warms clips and adds slight contrast
+  // to unify independently-generated Kling clips
+  const colorGradeFilter = config.colorGrade !== false
+    ? 'contrast(1.08) saturate(1.1) brightness(0.97) sepia(0.08)'
+    : 'none';
+
   return (
     <AbsoluteFill style={{ backgroundColor: '#000' }}>
-      {/* Video clips with transitions */}
-      <TransitionSeries>
-        {clipPaths.map((clipPath, i) => {
-          const clip = config.clips[i];
-          const clipDuration = secondsToFrames(clip?.duration ?? 5, fps);
-          const isLastClip = i === clipPaths.length - 1;
+      {/* Video clips with transitions — wrapped in color grade filter */}
+      <AbsoluteFill style={{ filter: colorGradeFilter }}>
+        <TransitionSeries>
+          {clipPaths.map((clipPath, i) => {
+            const clip = config.clips[i];
+            const clipDuration = secondsToFrames(clip?.duration ?? 5, fps);
+            const isLastClip = i === clipPaths.length - 1;
 
-          return (
-            <React.Fragment key={clipPath}>
-              <TransitionSeries.Sequence durationInFrames={clipDuration}>
-                <VideoScene clipPath={clipPath} volume={0} />
-              </TransitionSeries.Sequence>
-              {!isLastClip && transition !== null && (
-                <TransitionSeries.Transition
-                  timing={transition.timing}
-                  presentation={transition.presentation}
-                />
-              )}
-            </React.Fragment>
-          );
-        })}
-      </TransitionSeries>
+            return (
+              <React.Fragment key={clipPath}>
+                <TransitionSeries.Sequence durationInFrames={clipDuration}>
+                  <VideoScene clipPath={clipPath} volume={0} sceneIndex={i} />
+                </TransitionSeries.Sequence>
+                {!isLastClip && transition !== null && (
+                  <TransitionSeries.Transition
+                    timing={transition.timing}
+                    presentation={transition.presentation}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
+        </TransitionSeries>
+      </AbsoluteFill>
 
       {/* Optional brand color unity overlay */}
       {config.colorUnify === true && assets.brandColors?.primary !== undefined && (
@@ -94,6 +104,12 @@ export const YoutubeShort: React.FC<CompositionProps> = ({
           }}
         />
       )}
+
+      {/* Vignette — darkens edges for consistent framing across clips */}
+      <Vignette intensity={0.4} />
+
+      {/* Film grain — consistent texture makes all clips feel shot on the same camera */}
+      <FilmGrain opacity={0.05} />
 
       {/* Voiceover — primary audio track at full volume */}
       {voiceoverPath !== undefined && (
