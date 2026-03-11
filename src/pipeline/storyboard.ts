@@ -6,8 +6,9 @@ import type { StoryboardGenOptions } from '../types/index.js';
 
 const MODEL = 'gemini-3-pro-image-preview';
 
-function getFramePath(projectsRoot: string, projectName: string, sceneIndex: number): string {
-  return path.join(projectsRoot, projectName, 'assets', 'storyboard', `scene-${sceneIndex}.png`);
+function getFramePath(projectsRoot: string, projectName: string, sceneIndex: number, variationIndex?: number): string {
+  const suffix = variationIndex !== undefined && variationIndex > 1 ? `-v${variationIndex}` : '';
+  return path.join(projectsRoot, projectName, 'storyboard', `scene-${sceneIndex}${suffix}.png`);
 }
 
 function getGeminiAspectRatio(format: StoryboardGenOptions['format']): string {
@@ -41,6 +42,7 @@ function buildImagePrompt(options: StoryboardGenOptions, hasAnchor: boolean): st
   if (options.colorGrade && !options.colorPalette) parts.push(`Color palette: ${options.colorGrade}.`);
   if (options.cameraMove) parts.push(`Framing: ${options.cameraMove}.`);
   if (options.visualStyleSummary) parts.push(`Style: ${options.visualStyleSummary}.`);
+  if (options.variationAngle) parts.push(`Variation emphasis: ${options.variationAngle}.`);
 
   parts.push(`Photorealistic, cinematic still frame. No text, no logos, no watermarks.`);
 
@@ -87,16 +89,20 @@ export async function generateStoryboardFrame(
     return null;
   }
 
-  const outputPath = getFramePath(options.projectsRoot, options.projectName, options.sceneIndex);
+  const outputPath = getFramePath(options.projectsRoot, options.projectName, options.sceneIndex, options.variationIndex);
   const outputPathJpg = outputPath.replace('.png', '.jpg');
+
+  const label = options.variationIndex !== undefined && options.variationIndex > 1
+    ? `scene-${options.sceneIndex}-v${options.variationIndex}`
+    : `scene-${options.sceneIndex}`;
 
   // Idempotent — skip if already generated (Gemini may return PNG or JPEG)
   if (await fs.pathExists(outputPath)) {
-    logger.skip(`Storyboard: scene-${options.sceneIndex}.png already exists.`);
+    logger.skip(`Storyboard: ${label}.png already exists.`);
     return outputPath;
   }
   if (await fs.pathExists(outputPathJpg)) {
-    logger.skip(`Storyboard: scene-${options.sceneIndex}.jpg already exists.`);
+    logger.skip(`Storyboard: ${label}.jpg already exists.`);
     return outputPathJpg;
   }
 
@@ -109,9 +115,10 @@ export async function generateStoryboardFrame(
     (await fs.pathExists(options.previousLastFramePath));
 
   logger.step(
-    `Storyboard: generating scene-${options.sceneIndex}` +
+    `Storyboard: generating ${label}` +
     (hasScene1Anchor ? ' (anchored to scene 1 style)' : '') +
     (hasPreviousFrame ? ` (+ scene ${options.sceneIndex - 1} continuity)` : '') +
+    (options.variationAngle ? ` [variation: ${options.variationAngle}]` : '') +
     `...`,
   );
 
@@ -191,11 +198,11 @@ export async function generateStoryboardFrame(
     if (ext !== 'png') {
       const jpgPath = outputPath.replace('.png', '.jpg');
       await fs.rename(outputPath, jpgPath);
-      logger.success(`Storyboard: scene-${options.sceneIndex}.jpg saved.`);
+      logger.success(`Storyboard: ${label}.jpg saved.`);
       return jpgPath;
     }
 
-    logger.success(`Storyboard: scene-${options.sceneIndex}.png saved.`);
+    logger.success(`Storyboard: ${label}.png saved.`);
     return outputPath;
   } catch (err) {
     logger.warn(

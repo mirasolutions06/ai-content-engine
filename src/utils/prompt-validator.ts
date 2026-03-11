@@ -88,7 +88,7 @@ export function validatePrompts(config: VideoConfig): ValidationWarning[] {
   }
 
   // Validate script length
-  if (config.script) {
+  if (config.script && config.format) {
     warnings.push(...validateScriptLength(config.script, config.format));
   }
 

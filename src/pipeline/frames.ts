@@ -28,7 +28,7 @@ export async function extractLastFrame(
   const outputPath = path.join(
     projectsRoot,
     projectName,
-    'assets/storyboard',
+    'storyboard',
     `scene-${sceneIndex}-lastframe.png`,
   );
 
@@ -48,7 +48,7 @@ export async function extractLastFrame(
   ]);
 
   logger.success(
-    `Last frame saved to assets/storyboard/scene-${sceneIndex}-lastframe.png` +
+    `Last frame saved to storyboard/scene-${sceneIndex}-lastframe.png` +
     ` — open in Antigravity for scene ${sceneIndex + 1} prompt`,
   );
 

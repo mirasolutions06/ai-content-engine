@@ -1,0 +1,27 @@
+{
+  "mode": "brand-images",
+  "title": "glow-lab-skincare",
+  "brand": "Glow Lab",
+  "brief": "Glow Lab is a clean clinical skincare brand. Glass bottles, serums and moisturizers. Bright airy studio lighting, white and cream backgrounds, diverse skin tones, dewy skin close-ups. Minimal, modern, science-meets-beauty aesthetic.",
+  "clips": [
+    {
+      "prompt": "Close-up of woman's face applying serum drops to cheek with glass dropper, dewy glowing skin, soft studio lighting, natural makeup, editorial beauty photography"
+    },
+    {
+      "prompt": "Woman applying moisturizer to bare shoulder and collarbone, glowing hydrated skin, bright airy backlight, intimate body care moment, editorial lifestyle photography"
+    },
+    {
+      "prompt": "Portrait of woman with radiant glowing skin post-skincare routine, no product visible, confident natural expression, soft ring light, clean beauty editorial"
+    },
+    {
+      "prompt": "Woman's hands cupping glass serum bottle close-up, soft even lighting, clean nails, white surface, product hero moment, minimal editorial photography"
+    },
+    {
+      "prompt": "Hero product shot of glass serum bottle and moisturizer jar on frosted glass shelf, soft backlight creating glow behind bottles, clean white studio, luxury skincare campaign"
+    },
+    {
+      "prompt": "Woman touching the back of her neck with fingertips, smooth glowing skin, hair swept to one side, soft warm backlight, intimate self-care moment, editorial beauty photography"
+    }
+  ],
+  "imageFormats": ["square"]
+}

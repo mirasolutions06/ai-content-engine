@@ -38,9 +38,11 @@ These rules are critical. A single bad pipeline run can burn $5-20+ in API credi
 | Director | Claude Sonnet 4.6 | ~$0.05-0.15 | Low — cached by config hash |
 | Voiceover | ElevenLabs | ~$0.30-1.00 | Medium — no preview |
 | Transcription | Whisper | ~$0.01-0.05 | Low — cheap |
-| Storyboard | Gemini 3 Pro Image | ~$0.05-0.15/frame | Medium |
-| Video clips (v2.1) | Kling v2.1 Pro via fal.ai | ~$0.49-0.90/clip | HIGH — most expensive |
-| Video clips (v3) | Kling v3 Pro via fal.ai | ~$1.12-2.24/clip | HIGH — ~2.3x more than v2.1 |
+| Storyboard (Gemini) | Gemini 3 Pro Image | ~$0.05-0.15/frame | Medium |
+| Storyboard (GPT Image) | GPT Image 1 | ~$0.04-0.08/frame | Medium |
+| Video clips (Kling v2.1) | Kling v2.1 Pro via fal.ai | ~$0.49-0.90/clip | HIGH — most expensive |
+| Video clips (Kling v3) | Kling v3 Pro via fal.ai | ~$1.12-2.24/clip | HIGH — ~2.3x more than v2.1 |
+| Video clips (Veo 3.1) | Google Veo 3.1 | ~$4.50-6.00/clip | HIGH — 4-8s clips |
 | Rendering | Remotion | Free (local) | None |
 | Copy gen | Claude (skills) | ~$0.05-0.15 | Low |
 
@@ -88,14 +90,18 @@ Pipeline steps (in order):
 9. Airtable run logging
 
 Key files:
-- src/pipeline/index.ts — main orchestrator, all steps idempotent
-- src/pipeline/director.ts — Claude-powered AI director, system prompt in file
+- src/pipeline/index.ts — main orchestrator, two-phase (serial storyboard → sequential video), all steps idempotent
+- src/pipeline/director.ts — Claude-powered AI director, reads prompt best practices
+- src/pipeline/image-router.ts — dispatches to Gemini or GPT Image based on config.imageProvider
 - src/pipeline/storyboard.ts — Gemini frame generation
+- src/pipeline/gpt-image.ts — GPT Image 1 frame generation (alternative to Gemini)
 - src/pipeline/fal.ts — Kling video generation via fal.ai
+- src/pipeline/veo.ts — Google Veo 3.1 video generation
 - src/pipeline/elevenlabs.ts — voiceover generation
 - src/pipeline/whisper.ts — audio transcription
 - src/pipeline/export.ts — final video packaging
 - src/pipeline/airtable.ts — run tracking
+- projects/_shared/prompt-best-practices.md — research-backed prompting reference (loaded by Director)
 - src/remotion/ — all Remotion compositions and components
 - src/types/index.ts — all TypeScript interfaces
 - src/cli/run-pipeline.ts — CLI entry point
@@ -103,12 +109,17 @@ Key files:
 
 Config schema: See src/types/index.ts for VideoConfig interface. Projects live in projects/{name}/config.json.
 
+Key config fields for flexible output:
+- `imageProvider`: `'gemini'` (default) or `'gpt-image'` — project-level, routes storyboard generation
+- `outputType` per clip: `'image'` / `'video'` / `'animation'` — determines what each scene produces
+- `duration` per clip: any number 1-15 seconds (Veo maps to 4/6/8s, Kling to 5/10s)
+
 Environment variables required:
 - FAL_KEY — fal.ai API key
 - ELEVENLABS_API_KEY — ElevenLabs API key
-- OPENAI_API_KEY — for Whisper transcription
+- OPENAI_API_KEY — for Whisper transcription AND GPT Image (when imageProvider: 'gpt-image')
 - ANTHROPIC_API_KEY — for Director (Claude Sonnet 4.6)
-- GEMINI_API_KEY — for storyboard frame generation
+- GEMINI_API_KEY — for storyboard frame generation (default) and Veo video generation
 - AIRTABLE_TOKEN + AIRTABLE_BASE_ID (optional) — run logging
 
 ### Source 2: ai-brand-pack (ABSORB AS IMAGE-ONLY MODE)
@@ -325,6 +336,7 @@ Revenue projections must be realistic and based on published benchmarks found vi
 - New utilities go in src/utils/
 - New pipeline steps go in src/pipeline/
 - Skills are pure SKILL.md files in skills/ — no code, no dependencies
+- Keep skills and docs lean — every line earns its place. Guide behavior, don't over-prescribe
 
 ## Testing
 

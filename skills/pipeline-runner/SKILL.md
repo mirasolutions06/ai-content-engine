@@ -41,9 +41,13 @@ Mode determines which API keys are required:
 
 | Mode | Required API keys |
 |---|---|
-| `brand-images` | `GEMINI_API_KEY` |
-| `video` | `FAL_KEY`, `ELEVENLABS_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` |
+| `brand-images` | `GEMINI_API_KEY` (or `OPENAI_API_KEY` if imageProvider is `gpt-image`) |
+| `video` (all image outputType) | Image provider key + `ANTHROPIC_API_KEY` |
+| `video` (with video/animation clips) | Image provider key + `FAL_KEY`/`GEMINI_API_KEY` (video provider) + `ELEVENLABS_API_KEY` + `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` |
 | `full` | All of the above |
+
+Image provider key: `GEMINI_API_KEY` (default) or `OPENAI_API_KEY` (if `imageProvider: "gpt-image"`).
+Video provider key: `FAL_KEY` (Kling) or `GEMINI_API_KEY` (Veo).
 
 **Check .env for required keys:**
 ```bash
@@ -79,9 +83,10 @@ npm start -- --project {name} --dry-run
 Parse the output and present to the user:
 - **Director plan**: visual style summary, enriched prompts per scene, voice settings, suggested caption theme
 - **Asset sourcing**: what would be auto-sourced (colors, style ref, location ref, music)
-- **Voiceover**: script text + voice ID + estimated cost
-- **Storyboard frames**: enriched prompt per scene + cost per frame
-- **Kling clips**: prompt per clip + duration + cost per clip (v2.1: ~$0.49/5s, v3: ~$1.12/5s)
+- **Image provider**: which provider generates storyboard frames (Gemini or GPT Image)
+- **Per-clip summary**: scene number, outputType (image/video/animation), duration, cost
+- **Voiceover**: script text + voice ID + estimated cost (if applicable)
+- **Video provider**: which provider generates clips (Kling v2.1/v3 or Veo 3.1)
 - **Brand images** (if applicable): scene count x format count + cost
 - **Total estimated cost**
 
@@ -232,8 +237,14 @@ npm start -- --project {name} --json-output
 ```
 No storyboard preview needed — brand images are cheap (~$0.05 each) and fast. Still do the dry run to show what will be generated.
 
-### video mode
-Full workflow: dry-run → storyboard → approve → full generation.
+### video mode — all image outputType
+If every clip has `"outputType": "image"`, no video generation runs. Storyboard frames ARE the output — copied to `output/images/`. Skip storyboard review gate (images are cheap, ~$0.04-0.08 each). Remotion is skipped entirely.
+
+### video mode — with video/animation clips
+Full workflow: dry-run → storyboard → approve → full generation. Video clips generate sequentially to preserve tail-frame conditioning for smooth transitions. Animation clips auto-clamp to max 5s with minimal motion prompts.
+
+### video mode — mixed (some images, some videos)
+Dry-run shows which clips are images vs videos. Image clips are resolved in Phase 1 (storyboard). Only video/animation clips go through Phase 2 (video gen). Cost breakdown reflects the mix.
 
 ### full mode
 Generates brand images first (cheap), then follows the full video workflow. Dry run shows both image and video costs.

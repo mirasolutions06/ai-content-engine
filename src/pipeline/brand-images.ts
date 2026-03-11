@@ -1,9 +1,10 @@
 import { GoogleGenAI } from '@google/genai';
+import OpenAI from 'openai';
 import path from 'path';
 import fs from 'fs-extra';
 import { logger } from '../utils/logger.js';
 import { FORMAT_ASPECT } from '../types/index.js';
-import type { VideoConfig, ImageFormat, BrandContext } from '../types/index.js';
+import type { VideoConfig, ImageFormat, ImageProvider, BrandContext } from '../types/index.js';
 
 const MODEL = 'gemini-3-pro-image-preview';
 
@@ -13,7 +14,6 @@ function buildBrandPrompt(
   scenePrompt: string,
   brand: string,
   brief: string | undefined,
-  format: ImageFormat,
   brandContext?: BrandContext,
   sceneIndex?: number,
 ): string {
@@ -44,25 +44,56 @@ function buildBrandPrompt(
 
 // ── Reference image discovery ────────────────────────────────────────────────
 
-async function findReferenceImage(
+const REF_TYPES = ['product', 'model', 'style', 'location'] as const;
+const IMG_EXTS = ['jpg', 'jpeg', 'png'] as const;
+
+/**
+ * Discovers all reference images in a project folder.
+ * Supports single files (product.jpg) and numbered variants (product-1.jpg, product-2.jpg).
+ * Gemini accepts up to 14 reference images — more angles = better consistency.
+ */
+async function findReferenceImages(
   projectsRoot: string,
   projectName: string,
-): Promise<string | undefined> {
-  const refDir = path.join(projectsRoot, projectName, 'assets', 'reference');
-  if (!(await fs.pathExists(refDir))) return undefined;
+): Promise<string[]> {
+  const projectDir = path.join(projectsRoot, projectName);
+  const found: string[] = [];
 
-  const candidates = [
-    'product.jpg', 'product.jpeg', 'product.png',
-    'style.jpg', 'style.jpeg', 'style.png',
-  ];
-  for (const name of candidates) {
-    const p = path.join(refDir, name);
-    if (await fs.pathExists(p)) return p;
+  // Scan project root for all reference types (single + numbered)
+  let files: string[];
+  try {
+    files = await fs.readdir(projectDir);
+  } catch {
+    return [];
   }
 
-  const files = await fs.readdir(refDir);
-  const first = files.find((f) => /\.(jpg|jpeg|png)$/i.test(f));
-  return first ? path.join(refDir, first) : undefined;
+  for (const type of REF_TYPES) {
+    // Match: product.jpg, product-1.jpg, product-2.jpg, etc.
+    const pattern = new RegExp(`^${type}(?:-(\\d+))?\\.(?:${IMG_EXTS.join('|')})$`, 'i');
+    const matches = files
+      .filter((f) => pattern.test(f))
+      .sort(); // alphabetical → product.jpg before product-1.jpg
+    for (const m of matches) {
+      found.push(path.join(projectDir, m));
+    }
+  }
+
+  // Fall back to assets/reference/ for backward compat
+  const refDir = path.join(projectDir, 'assets', 'reference');
+  if (await fs.pathExists(refDir)) {
+    const legacyCandidates = [
+      'product.jpg', 'product.jpeg', 'product.png',
+      'subject.jpg', 'subject.jpeg', 'subject.png',
+      'style.jpg', 'style.jpeg', 'style.png',
+      'location.jpg', 'location.jpeg', 'location.png',
+    ];
+    for (const name of legacyCandidates) {
+      const p = path.join(refDir, name);
+      if (await fs.pathExists(p) && !found.includes(p)) found.push(p);
+    }
+  }
+
+  return found;
 }
 
 // ── Brand context loader ─────────────────────────────────────────────────────
@@ -89,7 +120,7 @@ async function generateBrandImage(
   brief: string | undefined,
   format: ImageFormat,
   outputPath: string,
-  referenceImagePath: string | undefined,
+  referenceImagePaths: string[],
   brandContext: BrandContext | undefined,
 ): Promise<string | null> {
   const apiKey = process.env['GEMINI_API_KEY'];
@@ -99,11 +130,11 @@ async function generateBrandImage(
   }
 
   if (await fs.pathExists(outputPath)) {
-    logger.skip(`scene-${sceneIndex}-${format} already exists.`);
+    logger.skip(`${path.basename(outputPath)} already exists.`);
     return outputPath;
   }
 
-  logger.step(`Generating scene-${sceneIndex}-${format}...`);
+  logger.step(`Generating ${path.basename(outputPath, path.extname(outputPath))}...`);
 
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -112,16 +143,46 @@ async function generateBrandImage(
     type TextPart = { text: string };
     const parts: Array<TextPart | InlineDataPart> = [];
 
-    // Include reference image if provided
-    if (referenceImagePath && (await fs.pathExists(referenceImagePath))) {
-      const buffer = await fs.readFile(referenceImagePath);
-      // Detect actual format from magic bytes, not file extension
+    // Include all reference images with labels — Gemini supports up to 14
+    const refLabels: string[] = [];
+    for (const refPath of referenceImagePaths) {
+      if (!(await fs.pathExists(refPath))) continue;
+      const buffer = await fs.readFile(refPath);
       const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
       const mimeType = isPng ? 'image/png' : 'image/jpeg';
       parts.push({ inlineData: { mimeType, data: buffer.toString('base64') } });
+      // Label by filename so Gemini knows what each reference is
+      const basename = path.basename(refPath, path.extname(refPath));
+      refLabels.push(basename);
     }
 
-    parts.push({ text: buildBrandPrompt(scenePrompt, brand, brief, format, brandContext, sceneIndex) });
+    // Build specific instructions per reference type so Gemini knows exactly what to do
+    let refPrefix = '';
+    if (refLabels.length > 0) {
+      const instructions: string[] = [];
+      const hasModel = refLabels.some((l) => l.startsWith('model'));
+      const hasProduct = refLabels.some((l) => l.startsWith('product'));
+
+      for (let idx = 0; idx < refLabels.length; idx++) {
+        const label = refLabels[idx]!;
+        if (label.startsWith('model')) {
+          instructions.push(`Image ${idx + 1} ("${label}") is the MODEL/PERSON. Use this person's EXACT face, features, skin tone, and body in every image that includes a person. This must be recognizably the SAME person across all images.`);
+        } else if (label.startsWith('product')) {
+          instructions.push(`Image ${idx + 1} ("${label}") is the ACTUAL PRODUCT. When the scene includes a product, show THIS exact product — same shape, label, color, packaging.`);
+        } else if (label.startsWith('style')) {
+          instructions.push(`Image ${idx + 1} ("${label}") is a STYLE reference — match this visual mood and aesthetic.`);
+        } else if (label.startsWith('location')) {
+          instructions.push(`Image ${idx + 1} ("${label}") is a LOCATION reference — use this environment/background.`);
+        }
+      }
+
+      if (hasModel) instructions.push('CRITICAL: The person must look identical across all generated images — same face, same features, same skin tone.');
+      if (hasProduct) instructions.push('CRITICAL: The product must match the reference exactly — do not invent a different bottle, jar, or label.');
+
+      refPrefix = instructions.join(' ') + ' ';
+    }
+
+    parts.push({ text: refPrefix + buildBrandPrompt(scenePrompt, brand, brief, brandContext, sceneIndex) });
 
     const response = await ai.models.generateContent({
       model: MODEL,
@@ -160,7 +221,65 @@ async function generateBrandImage(
     logger.success(`Saved: ${path.basename(finalPath)}`);
     return finalPath;
   } catch (err) {
-    logger.warn(`Gemini failed for scene-${sceneIndex}-${format}: ${String(err)}`);
+    logger.warn(`Gemini failed for ${path.basename(outputPath)}: ${String(err)}`);
+    return null;
+  }
+}
+
+// ── GPT Image size mapping for brand formats ────────────────────────────────
+
+const FORMAT_GPT_SIZE: Record<ImageFormat, '1024x1024' | '1024x1536' | '1536x1024'> = {
+  story: '1024x1536',
+  square: '1024x1024',
+  landscape: '1536x1024',
+};
+
+// ── GPT Image generation ─────────────────────────────────────────────────────
+
+async function generateBrandImageGpt(
+  sceneIndex: number,
+  scenePrompt: string,
+  brand: string,
+  brief: string | undefined,
+  format: ImageFormat,
+  outputPath: string,
+  brandContext: BrandContext | undefined,
+): Promise<string | null> {
+  const apiKey = process.env['OPENAI_API_KEY'];
+  if (!apiKey) {
+    logger.warn('OPENAI_API_KEY not set — skipping GPT Image generation.');
+    return null;
+  }
+
+  if (await fs.pathExists(outputPath)) {
+    logger.skip(`${path.basename(outputPath)} already exists.`);
+    return outputPath;
+  }
+
+  logger.step(`GPT Image: generating ${path.basename(outputPath, path.extname(outputPath))}...`);
+
+  try {
+    const openai = new OpenAI({ apiKey });
+    const prompt = buildBrandPrompt(scenePrompt, brand, brief, brandContext, sceneIndex);
+    const size = FORMAT_GPT_SIZE[format];
+
+    const response = await openai.images.generate({
+      model: 'gpt-image-1',
+      prompt,
+      n: 1,
+      size,
+    });
+
+    const imageData = response.data?.[0]?.b64_json;
+    if (!imageData) throw new Error('GPT Image returned no image data');
+
+    await fs.ensureDir(path.dirname(outputPath));
+    await fs.writeFile(outputPath, Buffer.from(imageData, 'base64'));
+
+    logger.success(`GPT Image: saved ${path.basename(outputPath)}`);
+    return outputPath;
+  } catch (err) {
+    logger.warn(`GPT Image failed for ${path.basename(outputPath)}: ${String(err)}`);
     return null;
   }
 }
@@ -177,6 +296,7 @@ export async function generateBrandImages(
   config: VideoConfig,
   projectsRoot: string,
   projectName: string,
+  regenerateImages?: number[],
 ): Promise<string> {
   const imagesDir = path.join(projectsRoot, projectName, 'output', 'images');
   await fs.ensureDir(imagesDir);
@@ -184,36 +304,57 @@ export async function generateBrandImages(
   const brand = config.brand ?? config.client ?? config.title;
   const brief = config.brief;
   const formats: ImageFormat[] = config.imageFormats ?? ['story', 'square', 'landscape'];
-  const scenes = config.clips;
+  const clips = config.clips;
+  const multiClip = clips.length > 1;
 
-  const referenceImagePath = await findReferenceImage(projectsRoot, projectName);
-  if (referenceImagePath) {
-    logger.info(`Using reference image: ${path.basename(referenceImagePath)}`);
+  const referenceImagePaths = await findReferenceImages(projectsRoot, projectName);
+  if (referenceImagePaths.length > 0) {
+    logger.info(`Using ${referenceImagePaths.length} reference image(s): ${referenceImagePaths.map((p) => path.basename(p)).join(', ')}`);
   }
 
   const brandContext = await loadBrandContext(projectsRoot, projectName);
 
+  // Delete targeted files so idempotency check re-generates them
+  if (regenerateImages && regenerateImages.length > 0) {
+    const multiClip = clips.length > 1;
+    for (const num of regenerateImages) {
+      for (const fmt of formats) {
+        const filename = multiClip ? `${num}-${fmt}.jpg` : `${fmt}.jpg`;
+        const filePath = path.join(imagesDir, filename);
+        if (await fs.pathExists(filePath)) {
+          await fs.remove(filePath);
+          logger.info(`Deleted ${filename} for regeneration.`);
+        }
+      }
+    }
+  }
+
   logger.step(
-    `Generating images for ${scenes.length} scene(s) × ${formats.length} format(s)...`,
+    `Generating ${clips.length} image(s) × ${formats.length} format(s)...`,
   );
 
-  for (let i = 0; i < scenes.length; i++) {
-    const scene = scenes[i];
-    if (!scene?.prompt) continue;
-    const sceneIndex = i + 1;
+  for (let i = 0; i < clips.length; i++) {
+    const clip = clips[i];
+    if (!clip?.prompt) continue;
+    const clipIndex = i + 1;
+    const clipProvider: ImageProvider = clip.imageProvider ?? config.imageProvider ?? 'gemini';
+    const clipFormats = clip.imageFormat ? [clip.imageFormat] : formats;
 
-    for (const format of formats) {
-      const outputPath = path.join(imagesDir, `scene-${sceneIndex}-${format}.jpg`);
-      await generateBrandImage(
-        sceneIndex,
-        scene.prompt,
-        brand,
-        brief,
-        format,
-        outputPath,
-        referenceImagePath,
-        brandContext,
-      );
+    for (const format of clipFormats) {
+      const filename = multiClip ? `${clipIndex}-${format}.jpg` : `${format}.jpg`;
+      const outputPath = path.join(imagesDir, filename);
+
+      if (clipProvider === 'gpt-image') {
+        await generateBrandImageGpt(
+          clipIndex, clip.prompt, brand, brief, format, outputPath,
+          brandContext,
+        );
+      } else {
+        await generateBrandImage(
+          clipIndex, clip.prompt, brand, brief, format, outputPath,
+          referenceImagePaths, brandContext,
+        );
+      }
     }
   }
 

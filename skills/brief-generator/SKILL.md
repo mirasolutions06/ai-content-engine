@@ -67,7 +67,8 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
   "clips": [
     {
       "prompt": "Visual scene description, 50-300 chars. See prompt rules below.",
-      "duration": 5
+      "duration": 5,
+      "outputType": "image | video | animation"
     }
   ],
   "transition": "crossfade | cut | wipe",
@@ -83,6 +84,8 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
   "music": true,
   "musicVolume": 0.15,
   "imageFormats": ["story", "square", "landscape"],
+  "imageProvider": "gemini | gpt-image",
+  "videoProvider": "kling-v2.1 | kling-v3 | veo-3.1 | veo-3.1-fast",
   "klingVersion": "v2.1 | v3",
   "colorUnify": false,
   "colorUnifyOpacity": 0.06
@@ -96,7 +99,11 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
 - `imageFormats`: omit to use default `["story", "square", "landscape"]`
 - `captionPosition`: omit to use default `"bottom"`
 - `captionTheme`: omit to let the Director auto-select based on brand tone. Set explicitly to override. Options: `bold` (TikTok pill-style highlights), `editorial` (clean luxury underline accent), `minimal` (simple opacity-based)
-- `klingVersion`: omit for default `"v2.1"` (cheaper, ~$0.49/5s clip). Set to `"v3"` for higher quality with multi-shot storyboards (~$1.12/5s clip, ~2.3x more expensive). v3 produces smoother transitions and better motion quality.
+- `imageProvider`: omit for default `"gemini"`. Set to `"gpt-image"` for GPT Image 1 (~$0.04-0.08/frame, more literal/explicit style). Project-level — applies to all clips.
+- `videoProvider`: omit for default `"kling-v2.1"`. Options: `"kling-v3"` (better motion, ~2.3x more), `"veo-3.1"` (Google, longer clips 4-8s), `"veo-3.1-fast"` (cheaper Veo).
+- `outputType` per clip: omit for default based on mode (`"video"` for video mode, `"image"` for brand-images). Set to `"image"` for stills, `"animation"` for short subtle motion (clamped to 5s max).
+- `duration` per clip: omit for default `5`. Any number 1-15. Veo maps to 4/6/8s; Kling to 5/10s.
+- `klingVersion`: omit for default `"v2.1"` (cheaper, ~$0.49/5s clip). Set to `"v3"` for higher quality with multi-shot storyboards (~$1.12/5s clip, ~2.3x more expensive). v3 produces smoother transitions and better motion quality. Prefer `videoProvider` over this field.
 - `colorUnify`: omit for default `false`. Set to `true` to apply a subtle brand-colored overlay on clips to unify color temperature across different Kling-generated scenes.
 - `colorUnifyOpacity`: omit for default `0.06` (6%). Adjust 0-1 if color unity overlay is too strong or subtle.
 
@@ -160,11 +167,13 @@ Calculate and display estimated cost before saving:
 |---|---|---|
 | Director (Claude Sonnet) | ~$0.10 | Always (runs once, cached after) |
 | Asset sourcing (Gemini) | ~$0.05-0.12 | Style ref + optional location ref + optional color extraction |
-| Storyboard frames (Gemini 3 Pro) | ~$0.08 x clips | Per clip |
+| Storyboard frames (Gemini) | ~$0.08 x clips | Per clip (default imageProvider) |
+| Storyboard frames (GPT Image) | ~$0.04-0.08 x clips | Per clip (imageProvider: "gpt-image") |
 | Voiceover (ElevenLabs) | ~$0.50 | Only if script provided |
 | Transcription (Whisper) | ~$0.02 | Only if voiceover generated |
-| Video clips (Kling v2.1 via fal.ai) | ~$0.49/5s, ~$0.90/10s | Per clip — default, cheaper |
-| Video clips (Kling v3 via fal.ai) | ~$1.12/5s, ~$2.24/10s | Per clip — higher quality, ~2.3x more |
+| Video clips (Kling v2.1) | ~$0.49/5s, ~$0.90/10s | Per video/animation clip |
+| Video clips (Kling v3) | ~$1.12/5s, ~$2.24/10s | Per video/animation clip — higher quality |
+| Video clips (Veo 3.1) | ~$4.50/6s, ~$6.00/8s | Per video/animation clip — Google |
 | Brand images (Gemini 3 Pro) | ~$0.08 x clips x formats | Only if mode includes brand-images |
 
 Show the breakdown and total. Example:
@@ -212,9 +221,12 @@ The pipeline will automatically source:
   - Location reference (if scenes describe a setting)
   - Background music (via Pixabay if PIXABAY_API_KEY is set)
 
-You still need to provide:
+For best results, provide:
   - Product photo -> projects/{slug}/assets/reference/subject.jpg
   - Logo (optional) -> projects/{slug}/assets/brand/logo.png
+
+If no product photo is uploaded, the pipeline generates frames from prompts
+using the configured imageProvider. Reference images improve quality but aren't required.
 
 Next steps:
   Preview:  npm start -- --project {slug} --storyboard-only

@@ -35,6 +35,18 @@ const COST_MAP: Record<string, number> = {
   // Kling v3 Pro (no audio)
   'kling-v3-5s': 1.12,
   'kling-v3-10s': 2.24,
+  // Veo 3.1 (Google, ~$0.75/s output)
+  'veo-3.1-6s': 4.50,
+  'veo-3.1-8s': 6.00,
+  'veo-3.1-fast-6s': 2.25,
+  'veo-3.1-fast-8s': 3.00,
+  // Video reference analysis
+  'gemini-video-analysis': 0.05,
+  // Storyboard variation (same cost as primary frame)
+  'gemini-frame-variation': 0.08,
+  // GPT Image (gpt-image-1)
+  'gpt-image-standard': 0.04,
+  'gpt-image-hd': 0.08,
 };
 
 export class CostTracker {
@@ -63,12 +75,30 @@ export class CostTracker {
         total += COST_MAP['whisper']!;
       }
 
-      const isV3 = config.klingVersion === 'v3';
+      // Resolve video provider from config
+      const provider = config.videoProvider
+        ?? (config.klingVersion === 'v3' ? 'kling-v3' : 'kling-v2.1');
+
+      const frameCostKey = config.imageProvider === 'gpt-image' ? 'gpt-image-standard' : 'gemini-frame';
+
       for (const clip of config.clips) {
-        total += COST_MAP['gemini-frame']!;
-        const dur = (clip.duration ?? 5) > 5 ? '10s' : '5s';
-        const klingKey = isV3 ? `kling-v3-${dur}` : `kling-${dur}`;
-        total += COST_MAP[klingKey]!;
+        total += COST_MAP[frameCostKey]!;
+
+        // Image-only clips don't incur video generation costs
+        if (clip.outputType === 'image') continue;
+
+        const dur = (clip.duration ?? 5) > 5;
+        let videoKey: string;
+        if (provider === 'veo-3.1') {
+          videoKey = dur ? 'veo-3.1-8s' : 'veo-3.1-6s';
+        } else if (provider === 'veo-3.1-fast') {
+          videoKey = dur ? 'veo-3.1-fast-8s' : 'veo-3.1-fast-6s';
+        } else if (provider === 'kling-v3') {
+          videoKey = dur ? 'kling-v3-10s' : 'kling-v3-5s';
+        } else {
+          videoKey = dur ? 'kling-10s' : 'kling-5s';
+        }
+        total += COST_MAP[videoKey]!;
       }
     }
 

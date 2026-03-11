@@ -6,7 +6,25 @@ import { logger } from '../utils/logger.js';
 /**
  * AssetLoader discovers and validates all project assets before the pipeline starts.
  * Optional assets fall back gracefully with warnings.
- * Storyboard frames are auto-discovered by scanning for scene-N.png files.
+ *
+ * Clean project structure (preferred):
+ *   projects/{name}/
+ *   ├── config.json
+ *   ├── product.jpg        ← subject/product (supports product-1.jpg, product-2.jpg for multiple angles)
+ *   ├── model.jpg           ← person/face reference (supports model-1.jpg, model-2.jpg)
+ *   ├── style.jpg           ← visual style/mood reference
+ *   ├── location.jpg        ← background/environment reference
+ *   ├── music.mp3           ← background music
+ *   ├── brand/
+ *   │   ├── brand.json      ← brand colors
+ *   │   ├── logo.png
+ *   │   ├── font-bold.ttf
+ *   │   └── font-regular.ttf
+ *   ├── storyboard/         ← auto-generated frames
+ *   ├── cache/
+ *   └── output/
+ *
+ * Legacy paths (assets/brand/, assets/reference/, etc.) still work.
  */
 export class AssetLoader {
   private projectDir: string;
@@ -28,18 +46,20 @@ export class AssetLoader {
       brandColors,
       styleReference,
       subjectReference,
+      modelReference,
       locationReference,
       backgroundMusic,
     ] = await Promise.all([
       this.loadStoryboardFrames(),
-      this.loadOptional('assets/brand/logo.png', 'logo'),
-      this.loadOptional('assets/brand/font-bold.ttf', 'bold font'),
-      this.loadOptional('assets/brand/font-regular.ttf', 'regular font'),
+      this.loadOptionalMulti(['brand/logo.png', 'assets/brand/logo.png'], 'logo'),
+      this.loadOptionalMulti(['brand/font-bold.ttf', 'assets/brand/font-bold.ttf'], 'bold font'),
+      this.loadOptionalMulti(['brand/font-regular.ttf', 'assets/brand/font-regular.ttf'], 'regular font'),
       this.loadBrandColors(),
-      this.loadOptionalMulti(['assets/reference/style.png', 'assets/reference/style.jpg'], 'style reference'),
-      this.loadOptionalMulti(['assets/reference/subject.jpg', 'assets/reference/subject.png'], 'subject reference'),
-      this.loadOptionalMulti(['assets/reference/location.png', 'assets/reference/location.jpg'], 'location reference'),
-      this.loadOptional('assets/audio/music.mp3', 'background music'),
+      this.loadOptionalMulti(['style.jpg', 'style.png', 'assets/reference/style.jpg', 'assets/reference/style.png'], 'style reference'),
+      this.loadOptionalMulti(['product.jpg', 'product.png', 'assets/reference/subject.jpg', 'assets/reference/subject.png'], 'subject reference'),
+      this.loadOptionalMulti(['model.jpg', 'model.png'], 'model reference'),
+      this.loadOptionalMulti(['location.jpg', 'location.png', 'assets/reference/location.jpg', 'assets/reference/location.png'], 'location reference'),
+      this.loadOptionalMulti(['music.mp3', 'assets/audio/music.mp3'], 'background music'),
     ]);
 
     const assets: ProjectAssets = { storyboardFrames };
@@ -52,6 +72,7 @@ export class AssetLoader {
     if (brandColors !== undefined) assets.brandColors = brandColors;
     if (styleReference !== undefined) assets.styleReference = styleReference;
     if (subjectReference !== undefined) assets.subjectReference = subjectReference;
+    if (modelReference !== undefined) assets.modelReference = modelReference;
     if (locationReference !== undefined) assets.locationReference = locationReference;
     if (backgroundMusic !== undefined) assets.backgroundMusic = backgroundMusic;
 
@@ -60,13 +81,17 @@ export class AssetLoader {
 
   /**
    * Auto-discovers scene-N.png files in the storyboard folder in ascending order.
+   * Checks storyboard/ first, falls back to assets/storyboard/.
    * Also checks for scene-N-lastframe.png companion files.
    */
   private async loadStoryboardFrames(): Promise<StoryboardFrame[]> {
-    const storyboardDir = path.join(this.projectDir, 'assets/storyboard');
+    // Check clean path first, then legacy
+    let storyboardDir = path.join(this.projectDir, 'storyboard');
+    if (!(await fs.pathExists(storyboardDir))) {
+      storyboardDir = path.join(this.projectDir, 'assets/storyboard');
+    }
 
     if (!(await fs.pathExists(storyboardDir))) {
-      logger.warn('Storyboard folder does not exist yet — no image-to-video mode available.');
       return [];
     }
 
@@ -99,10 +124,6 @@ export class AssetLoader {
       logger.info(
         `Found ${frames.length} storyboard frame(s): ${frames.map((f) => `scene-${f.sceneIndex}`).join(', ')}`,
       );
-    } else {
-      logger.warn(
-        'No storyboard frames found in assets/storyboard/ — running in text-to-video mode only.',
-      );
     }
 
     return frames;
@@ -110,20 +131,23 @@ export class AssetLoader {
 
   /**
    * Loads brand.json if it exists, returning parsed BrandColors.
-   * Returns undefined with a warning if missing or invalid.
+   * Checks brand/brand.json first, falls back to assets/brand/brand.json.
    */
   private async loadBrandColors(): Promise<BrandColors | undefined> {
-    const brandPath = path.join(this.projectDir, 'assets/brand/brand.json');
-    if (!(await fs.pathExists(brandPath))) {
-      logger.warn('No brand.json found — using default colors.');
-      return undefined;
+    const candidates = [
+      path.join(this.projectDir, 'brand/brand.json'),
+      path.join(this.projectDir, 'assets/brand/brand.json'),
+    ];
+    for (const brandPath of candidates) {
+      if (!(await fs.pathExists(brandPath))) continue;
+      try {
+        return await fs.readJson(brandPath) as BrandColors;
+      } catch {
+        logger.warn('brand.json is invalid JSON — using default colors.');
+        return undefined;
+      }
     }
-    try {
-      return await fs.readJson(brandPath) as BrandColors;
-    } catch {
-      logger.warn('brand.json is invalid JSON — using default colors.');
-      return undefined;
-    }
+    return undefined;
   }
 
   /**
@@ -134,19 +158,6 @@ export class AssetLoader {
       const fullPath = path.join(this.projectDir, rel);
       if (await fs.pathExists(fullPath)) return fullPath;
     }
-    logger.warn(`Optional asset not found: ${label} (${relativePaths[0]})`);
-    return undefined;
-  }
-
-  /**
-   * Returns the absolute path to an optional asset, or undefined with a warning.
-   */
-  private async loadOptional(relativePath: string, label: string): Promise<string | undefined> {
-    const fullPath = path.join(this.projectDir, relativePath);
-    if (await fs.pathExists(fullPath)) {
-      return fullPath;
-    }
-    logger.warn(`Optional asset not found: ${label} (${relativePath})`);
     return undefined;
   }
 }

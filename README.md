@@ -1,241 +1,166 @@
-# AI Content Engine
+# Mira Content Engine
 
-One brief in, platform-ready content out. Generate brand images, AI video, voiceovers, captions, copy, and deliverable packages from a single natural-language brief — orchestrated by 5 Claude skills with built-in cost controls.
-
----
-
-## What It Does
-
-```
-Brief Generator ──→ Pipeline Runner ──→ Copy Engine ──→ Asset Packager ──→ Distributor
-   (Skill 1)          (Skill 2)         (Skill 3)       (Skill 4)         (Skill 5)
-
- Natural language     Images, video,    Platform copy,   Organized         Monetization
- → valid config       voiceover,        hashtags, ads,   deliverables      strategy +
- + cost estimate      captions          email sequences  per platform      affiliate plan
-```
-
-**Three pipeline modes:**
-
-| Mode | What it generates | Cost |
-|------|-------------------|------|
-| `brand-images` | Multi-format images (story 9:16, square 1:1, landscape 16:9) | Low |
-| `video` | Full AI video with voiceover, captions, transitions, CTA | Medium–High |
-| `full` | Brand images + full video pipeline | Highest |
-
-## AI Stack
-
-| Service | Role |
-|---------|------|
-| **Claude Sonnet 4.6** | Director AI — enriches prompts, plans cinematography, voice direction |
-| **Gemini 2.5 Flash** | Storyboard frame generation + multi-format brand images |
-| **fal.ai Kling v2.1** | Image-to-video clip generation |
-| **ElevenLabs** | Voiceover generation |
-| **OpenAI Whisper** | Word-level caption transcription |
-| **Remotion** | Programmatic video composition (shorts, TikTok, ads, web hero) |
-
-## Cost Safety
-
-Every pipeline run follows a progressive generation order — cheapest steps first, human approval gates before expensive ones:
-
-```
-Director ($0.10) → Storyboard ($0.05/frame) → ⛔ REVIEW GATE
-    → Voiceover ($0.50) → Whisper ($0.02) → ⛔ APPROVAL GATE
-    → Kling ($1-2/clip) → Remotion (free) → Final MP4
-```
-
-The `--dry-run` flag shows exactly what every API call would send and the estimated total cost — without spending anything.
+One brief in, platform-ready content out. Generate brand images, AI video, voiceovers, captions, copy, and deliverable packages from a single natural-language brief.
 
 ---
 
-## Prerequisites
+## How It Works
 
-- **Node.js 20+** — [nodejs.org](https://nodejs.org)
-- **FFmpeg** — for last-frame extraction and video packaging
+Talk to Claude Code. Describe your brand and what you need. Claude handles everything through 5 skills:
 
-```bash
-brew install ffmpeg
+```
+Brief Generator  →  Pipeline Runner  →  Copy Engine  →  Asset Packager  →  Distributor
+   (Skill 1)          (Skill 2)          (Skill 3)       (Skill 4)         (Skill 5)
+
+ "Create a brief   "Run the pipeline"  "Write copy"    "Package assets"  "Monetize this"
+  for Ama Shea"
 ```
 
-## Installation
+You don't need to touch the CLI directly — the skills handle commands, cost gates, and file management for you.
 
-```bash
-git clone https://github.com/mirasolutions06/ai-content-engine.git
-cd ai-content-engine
-npm install
-```
+---
 
-Create `.env` in the project root:
+## Three Modes
 
-```env
-FAL_KEY=
-ELEVENLABS_API_KEY=
-OPENAI_API_KEY=
-GEMINI_API_KEY=
-ANTHROPIC_API_KEY=
-
-# Optional
-AIRTABLE_API_KEY=
-AIRTABLE_BASE_ID=
-AIRTABLE_TABLE_ID=
-```
-
-<details>
-<summary>Where to get API keys</summary>
-
-| Key | Where to get it | Used for |
-|-----|-----------------|----------|
-| `FAL_KEY` | [fal.ai](https://fal.ai) → Settings → API Keys | Kling video generation |
-| `GEMINI_API_KEY` | [aistudio.google.com](https://aistudio.google.com) → Get API key | Storyboard + brand images |
-| `ANTHROPIC_API_KEY` | [console.anthropic.com](https://console.anthropic.com) → API Keys | Director AI (Claude) |
-| `ELEVENLABS_API_KEY` | [elevenlabs.io](https://elevenlabs.io) → Profile → API Keys | Voiceover |
-| `OPENAI_API_KEY` | [platform.openai.com](https://platform.openai.com) → API Keys | Whisper captions only |
-
-</details>
+| Mode | What you get | When to use |
+|------|-------------|-------------|
+| `brand-images` | Multi-format images (story 9:16, square 1:1, landscape 16:9) | Social media content, product photography |
+| `video` | Full AI video with voiceover, captions, transitions, CTA | YouTube Shorts, TikTok, ads |
+| `full` | Brand images + full video in one run | Complete campaign package |
 
 ---
 
 ## Quick Start
 
-### 1. Create a project
+### 1. Install
 
 ```bash
-npm run new-project -- --name my-ad --format youtube-short
+git clone <repo-url>
+cd mira-content-engine
+npm install
 ```
 
-Formats: `youtube-short`, `tiktok`, `ad-16x9`, `ad-1x1`, `web-hero`
+### 2. Set up API keys
 
-### 2. Edit config or use the Brief Generator skill
+Create `.env` in the project root:
 
-Either edit `projects/my-ad/config.json` manually, or use **Skill 1** (Brief Generator) in Claude Code to generate a validated config from a natural-language brief.
-
-### 3. Dry run — preview without spending
-
-```bash
-npm start -- --project my-ad --dry-run
+```env
+GEMINI_API_KEY=          # Gemini — images + brand photos
+ANTHROPIC_API_KEY=       # Claude — Director AI
+FAL_KEY=                 # fal.ai — Kling video generation
+ELEVENLABS_API_KEY=      # ElevenLabs — voiceover
+OPENAI_API_KEY=          # Whisper captions + GPT Image (optional)
 ```
 
-Shows every planned API call and estimated cost.
+Not all keys are needed for every mode:
 
-### 4. Storyboard preview — review before committing to video
+| Mode | Required keys |
+|------|--------------|
+| `brand-images` | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` |
+| `video` (Gemini + Kling) | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `FAL_KEY` |
+| `video` (with voiceover) | + `ELEVENLABS_API_KEY`, `OPENAI_API_KEY` |
+| `video` (GPT Image) | + `OPENAI_API_KEY` |
+| `video` (Veo) | `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` |
 
-```bash
-npm start -- --project my-ad --storyboard-only
-```
+### 3. Tell Claude what you need
 
-Generates Gemini storyboard frames and stops. Review `assets/storyboard/scene-*.png` before proceeding.
+Open Claude Code and say something like:
 
-### 5. Full pipeline
+> "Create a brief for Ama Shea — luxury African shea butter skincare brand. Hero product is whipped shea body butter. Target: women 25-40 who care about clean beauty and heritage brands."
 
-```bash
-npm start -- --project my-ad
-```
-
-All steps are idempotent — re-running never duplicates API calls.
-
-### 6. JSON output (for automation)
-
-```bash
-npm start -- --project my-ad --json-output
-```
-
-Prints a structured JSON summary: success status, output paths, generated assets, cost breakdown, and cache hits.
+Claude generates a validated `config.json`, shows the cost estimate, and asks for approval before spending anything.
 
 ---
 
-## The 5 Skills
+## Use Case: Brand Images
 
-Skills are Claude Code instructions in `skills/` that orchestrate the pipeline with guardrails. Use them conversationally:
+Generate professional product photography in multiple formats for social media.
 
-| Skill | Trigger | What it does |
-|-------|---------|--------------|
-| **Brief Generator** | "create a brief for [brand]" | Researches the brand, generates valid config.json, validates prompts, shows cost estimate |
-| **Pipeline Runner** | "run the pipeline" | Enforces dry-run → storyboard → approval → generation flow |
-| **Copy Engine** | "write copy" | Generates platform-specific captions, hashtags, ad copy, email sequences, lead magnets |
-| **Asset Packager** | "package assets" | Organizes outputs into platform-ready folders with matched copy and posting schedule |
-| **Distributor** | "monetize this" | Finds real affiliate programs, generates revenue projections, builds tracking plan |
+### What you need
+
+1. A `config.json` with `"mode": "brand-images"`
+2. Reference photos dropped in the project folder (optional but recommended)
+
+### Reference photos
+
+Drop these in `projects/your-project/`:
+
+| File | What it's for | Required? |
+|------|--------------|-----------|
+| `product.jpg` | The product — jar, bottle, packaging | No, but strongly recommended |
+| `product-1.jpg`, `product-2.jpg` | Multiple angles of the product | No |
+| `model.jpg` | Person/face to feature with the product | No |
+| `model-1.jpg`, `model-2.jpg` | Multiple photos of the same person | No |
+| `style.jpg` | Visual mood reference — aesthetic you want to match | No |
+| `location.jpg` | Background/environment reference | No |
+
+- Filenames are exact — `product.jpg`, not `my-product-photo.jpg`
+- Numbered variants (`product-1.jpg`, `model-2.jpg`) let you provide multiple angles
+- More reference photos = better consistency. Gemini uses up to 14
+- Any image format works: `.jpg`, `.jpeg`, `.png`
+- The pipeline labels each reference by filename so Gemini knows what it's looking at
+
+### Example config
+
+```json
+{
+  "mode": "brand-images",
+  "title": "ama-shea-whipped-butter",
+  "brand": "Ama Shea",
+  "brief": "Luxury African shea butter skincare. Warm golden amber lighting, earthy textures, raw ingredients on dark wood, West African textiles. Premium but grounded.",
+  "clips": [
+    {
+      "prompt": "Glass jar of whipped ivory shea butter on dark cracked wood planks surrounded by raw shea nuts and kente cloth, warm golden-amber key light, luxury handmade product photography"
+    },
+    {
+      "prompt": "Close-up of hands scooping whipped shea butter from jar, warm skin tones, soft studio lighting, editorial beauty photography, shallow depth of field"
+    }
+  ],
+  "imageFormats": ["story", "square", "landscape"]
+}
+```
+
+### What you get
+
+```
+output/images/
+├── 1-story.jpg       ← 9:16 for Instagram Stories / TikTok
+├── 1-square.jpg      ← 1:1 for Instagram Feed
+├── 1-landscape.jpg   ← 16:9 for Twitter / LinkedIn
+├── 2-story.jpg
+├── 2-square.jpg
+└── 2-landscape.jpg
+```
+
+Each clip generates one image per format. 2 clips x 3 formats = 6 images.
+
+### Cost
+
+~$0.05-0.15 per image (Gemini). A typical 3-clip x 3-format run costs ~$0.45-1.35.
 
 ---
 
-## Visual Continuity
+## Use Case: AI Video
 
-Gemini generates each storyboard frame using the **last frame of the previous clip** as context — maintaining subject, lighting, and color across scenes automatically.
+Generate a complete video with AI-generated visuals, voiceover, captions, transitions, and CTA overlay.
 
-```
-scene-1.png (from prompt) → Kling → scene-1.mp4 → ffmpeg extracts lastframe
-                                                         ↓
-scene-2.png (from prompt + lastframe context) → Kling → scene-2.mp4 → ...
-```
+### What you need
 
----
+1. A `config.json` with `"mode": "video"` (or omit mode — video is the default)
+2. A `format` — determines aspect ratio and composition
+3. Reference photos (optional, improves visual consistency)
 
-## CLI Reference
+### Video formats
 
-### Create a project
+| Format | Aspect | Duration | Use for |
+|--------|--------|----------|---------|
+| `youtube-short` | 9:16 | Up to 60s | YouTube Shorts |
+| `tiktok` | 9:16 | Up to 60s | TikTok, Instagram Reels |
+| `ad-16x9` | 16:9 | Any | Landscape ads, YouTube pre-roll |
+| `ad-1x1` | 1:1 | Any | Square ads, Instagram Feed |
+| `web-hero` | 16:9 | Any | Website hero sections, landing pages |
 
-```bash
-npm run new-project -- --name <name> --format <format>
-```
-
-### Run the pipeline
-
-```bash
-npm start -- --project <name> [options]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--project <name>` | Project folder under `projects/` (required) |
-| `--dry-run` | Preview all API calls with cost estimate, no spending |
-| `--storyboard-only` | Generate storyboard frames only, stop before video |
-| `--json-output` | Print structured JSON summary to stdout |
-| `--list-voices` | List available ElevenLabs voices and exit |
-
-### Other commands
-
-```bash
-npm run build       # TypeScript check (tsc --noEmit)
-npm run remotion    # Open Remotion Studio for visual preview
-```
-
----
-
-## config.json Reference
-
-<details>
-<summary>Full config fields</summary>
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `mode` | `string` | No | `"video"` | `"video"`, `"brand-images"`, or `"full"` |
-| `format` | `string` | Yes | — | `youtube-short`, `tiktok`, `ad-16x9`, `ad-1x1`, `web-hero` |
-| `title` | `string` | Yes | — | Used in output filename |
-| `client` | `string` | No | — | Client name, shown in lower thirds |
-| `script` | `string` | No | `""` | Voiceover text (empty = skip voiceover) |
-| `voiceId` | `string` | No | — | ElevenLabs voice ID (required if script is set) |
-| `clips` | `array` | Yes | — | Scene definitions (at least one) |
-| `transition` | `string` | No | `"crossfade"` | `crossfade`, `cut`, or `wipe` |
-| `captions` | `boolean` | No | format default | Render word-by-word captions |
-| `captionStyle` | `string` | No | `"word-by-word"` | `word-by-word` or `line-by-line` |
-| `captionPosition` | `string` | No | `"bottom"` | `bottom`, `center`, or `top` |
-| `hookText` | `string` | No | — | Bold text shown at top for first 2 seconds |
-| `cta` | `object` | No | — | End screen CTA: `{ text, subtext, durationSeconds }` |
-| `music` | `boolean` | No | `false` | Use `assets/audio/music.mp3` as background |
-| `musicVolume` | `number` | No | `0.15` | Background music volume (0–1) |
-
-**Clip fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `prompt` | `string` | Scene description for Gemini + Kling |
-| `imageReference` | `string` | Path to storyboard image (overrides auto-discovery) |
-| `url` | `string` | URL to pre-generated MP4 (skips fal.ai) |
-| `duration` | `5 \| 10` | Clip duration in seconds (default: 5) |
-
-</details>
-
-<details>
-<summary>Example config.json</summary>
+### Example config
 
 ```json
 {
@@ -247,20 +172,21 @@ npm run remotion    # Open Remotion Studio for visual preview
   "voiceId": "pNInz6obpgDQGcFmaJgB",
   "clips": [
     {
-      "prompt": "A runner sprints through a neon-lit city street at dusk, dynamic camera tracking",
+      "prompt": "Runner sprints through neon-lit city street at dusk, dynamic tracking shot, cinematic lighting",
       "duration": 5
     },
     {
-      "prompt": "Close up of Nike Air Max shoes hitting wet asphalt, water splashing in slow motion",
+      "prompt": "Close-up of Nike Air Max shoes hitting wet asphalt, water splashing in slow motion, 85mm lens",
       "duration": 5
     },
     {
-      "prompt": "The runner stops, looks at camera, confident smile, city lights bokeh background",
+      "prompt": "Runner stops and looks at camera, confident, city lights bokeh background, golden hour rim light",
       "duration": 5
     }
   ],
   "transition": "cut",
   "captions": true,
+  "captionTheme": "bold",
   "hookText": "Move different this summer",
   "cta": {
     "text": "Shop Air Max",
@@ -272,56 +198,255 @@ npm run remotion    # Open Remotion Studio for visual preview
 }
 ```
 
+### Pipeline steps
+
+```
+1. Director AI (Claude)     — enriches prompts, plans cinematography    ~$0.10
+2. Voiceover (ElevenLabs)   — generates speech from script              ~$0.50
+3. Captions (Whisper)       — word-level transcription                  ~$0.02
+4. Storyboard (Gemini)      — generates scene frames                    ~$0.08/frame
+   ⛔ REVIEW GATE — you approve frames before proceeding
+5. Video (Kling/Veo)        — animates frames into clips                ~$0.50-6.00/clip
+6. Render (Remotion)        — composites everything into final MP4      free
+7. Package (ffmpeg)         — optimizes for streaming                   free
+```
+
+### Video providers
+
+| Provider | Cost per clip | Quality | Best for |
+|----------|--------------|---------|----------|
+| `kling-v2.1` (default) | $0.49/5s, $0.90/10s | Good | Most projects, budget-conscious |
+| `kling-v3` | $1.12/5s, $2.24/10s | Better | Higher quality, multi-subject scenes |
+| `veo-3.1` | ~$4.50-6.00/clip | Best | Complex camera moves, atmospheric effects |
+
+Set in config: `"videoProvider": "kling-v3"` or `"veo-3.1"`
+
+### Image providers
+
+| Provider | Cost per frame | Best for |
+|----------|---------------|----------|
+| `gemini` (default) | ~$0.05-0.15 | Most scenes, supports reference images |
+| `gpt-image` | ~$0.04-0.08 | Text rendering, literal interpretation |
+
+Set in config: `"imageProvider": "gpt-image"`
+
+### What you get
+
+```
+output/
+├── audio/voiceover.mp3
+├── clips/
+│   ├── scene-1.mp4
+│   ├── scene-2.mp4
+│   └── scene-3.mp4
+└── final/
+    └── summer-campaign-youtube-short.mp4
+```
+
+---
+
+## Use Case: Mixed Mode (Images + Video in One Project)
+
+You can control what each clip produces using `outputType` per clip:
+
+```json
+{
+  "mode": "video",
+  "format": "youtube-short",
+  "title": "product-launch",
+  "clips": [
+    {
+      "prompt": "Product hero shot on marble surface, warm studio lighting",
+      "outputType": "image"
+    },
+    {
+      "prompt": "Hand picks up the bottle, slow dolly-in, golden hour light",
+      "outputType": "video",
+      "duration": 5
+    },
+    {
+      "prompt": "Product on display with soft bokeh, subtle parallax movement",
+      "outputType": "animation",
+      "duration": 5
+    }
+  ]
+}
+```
+
+| outputType | What happens | Cost |
+|-----------|-------------|------|
+| `image` | Generates a still frame only (Gemini/GPT Image) | ~$0.08 |
+| `video` | Generates frame → animates with Kling/Veo (text-to-video) | ~$0.50-6.00 |
+| `animation` | Generates frame → animates with Kling (image-to-video, more faithful) | ~$0.50-2.25 |
+
+---
+
+## Use Case: Video Reference Upload
+
+If you have an existing video you want to match the style of, drop it in the project folder:
+
+```
+projects/your-project/
+├── config.json
+├── reference.mp4      ← existing video to analyze
+└── ...
+```
+
+The pipeline analyzes the video (shot types, pacing, color palette, transitions) and feeds that context to the Director AI, which uses it to enrich your scene prompts.
+
+Supported formats: `.mp4`, `.mov`
+
+---
+
+## Project Folder Structure
+
+```
+projects/your-project/
+├── config.json              ← your brief (required)
+├── product.jpg              ← product reference photo
+├── product-1.jpg            ← additional product angles
+├── model.jpg                ← person/face reference
+├── model-1.jpg              ← additional model photos
+├── style.jpg                ← visual mood reference
+├── location.jpg             ← environment reference
+├── music.mp3                ← background music
+├── brand/
+│   ├── brand.json           ← brand colors { primary, secondary, accent }
+│   ├── logo.png             ← transparent logo
+│   ├── font-bold.ttf        ← custom font (optional)
+│   └── font-regular.ttf
+├── storyboard/              ← auto-generated (pipeline writes here)
+├── cache/                   ← auto-managed (Director plan, cost log, hashes)
+└── output/                  ← results
+    ├── images/              ← brand images (brand-images mode)
+    ├── audio/               ← voiceover (video mode)
+    ├── clips/               ← video clips (video mode)
+    ├── final/               ← rendered video (video mode)
+    ├── copy/                ← platform copy (Copy Engine skill)
+    └── deliverables/        ← packaged assets (Asset Packager skill)
+```
+
+Only `config.json` is required. Everything else is optional and auto-discovered.
+
+---
+
+## Cost Safety
+
+The pipeline never spends money without your approval:
+
+```
+1. Brief generation           free (Claude conversation)
+2. Dry run                    free (preview all API calls)
+3. Director AI                ~$0.10 (cached after first run)
+4. Storyboard frames          ~$0.08/frame
+   ⛔ REVIEW GATE
+5. Voiceover + captions       ~$0.52
+6. Video clips                ~$0.50-6.00/clip
+   ⛔ APPROVAL GATE
+7. Remotion render            free
+```
+
+All steps are **idempotent** — re-running skips anything already generated. Delete a specific file to regenerate just that step.
+
+All API calls are **cached by content hash** — changing unrelated config fields doesn't regenerate expensive steps.
+
+---
+
+## CLI Reference
+
+Most users interact through Claude Code skills. For direct CLI access:
+
+```bash
+# Create a new project
+npm run new-project -- --name my-project --format youtube-short
+
+# Run the pipeline
+npm start -- --project my-project [options]
+```
+
+| Flag | Description |
+|------|-------------|
+| `--project <name>` | Project folder name (required) |
+| `--dry-run` | Preview all API calls with cost estimate |
+| `--storyboard-only` | Generate frames only, stop before video |
+| `--variations <n>` | Generate 1-4 variations per scene (implies --storyboard-only) |
+| `--json-output` | Print structured JSON summary |
+| `--airtable-review` | Enable Airtable review gates |
+| `--list-voices` | List available ElevenLabs voices |
+
+---
+
+## Config Reference
+
+<details>
+<summary>All config fields</summary>
+
+### Top-level
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `mode` | `"video"` / `"brand-images"` / `"full"` | `"video"` | Pipeline mode |
+| `format` | `string` | — | Required for video/full mode |
+| `title` | `string` | — | Used in output filename |
+| `brand` | `string` | — | Brand name (used in brand-images prompts) |
+| `client` | `string` | — | Client name (shown in lower thirds) |
+| `brief` | `string` | — | Overall brand context passed to Director + Gemini |
+| `script` | `string` | `""` | Voiceover text (empty = no voiceover) |
+| `voiceId` | `string` | — | ElevenLabs voice ID |
+| `clips` | `VideoClip[]` | — | Scene definitions (at least one) |
+| `transition` | `"crossfade"` / `"cut"` / `"wipe"` | `"crossfade"` | Scene transitions |
+| `captions` | `boolean` | format default | Render captions |
+| `captionStyle` | `"word-by-word"` / `"line-by-line"` | `"word-by-word"` | Caption display |
+| `captionTheme` | `"bold"` / `"editorial"` / `"minimal"` | `"bold"` | Caption visual style |
+| `captionPosition` | `"bottom"` / `"center"` / `"top"` | `"bottom"` | Caption placement |
+| `hookText` | `string` | — | Bold text overlay for first 2 seconds |
+| `cta` | `{ text, subtext?, durationSeconds? }` | — | End screen CTA |
+| `music` | `boolean` | `false` | Use background music |
+| `musicVolume` | `number` | `0.15` | Music volume (0-1) |
+| `imageFormats` | `ImageFormat[]` | all three | Which image formats to generate |
+| `imageProvider` | `"gemini"` / `"gpt-image"` | `"gemini"` | Storyboard frame provider |
+| `videoProvider` | `string` | `"kling-v2.1"` | `"kling-v2.1"` / `"kling-v3"` / `"veo-3.1"` |
+| `colorUnify` | `boolean` | `false` | Apply brand-colored overlay to unify color |
+| `colorGrade` | `boolean` | `true` | Apply CSS color grade filter |
+
+### Clip fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `prompt` | `string` | — | Scene description for image/video generation |
+| `duration` | `number` | `5` | Clip duration in seconds (1-15) |
+| `outputType` | `"image"` / `"video"` / `"animation"` | inferred | What this clip produces |
+| `imageReference` | `string` | — | Path to custom storyboard image |
+| `url` | `string` | — | URL to pre-generated MP4 (skips generation) |
+
 </details>
 
 ---
 
-## Project Structure
+## AI Stack
 
-```
-projects/<name>/
-├── config.json                          # Pipeline configuration
-├── assets/
-│   ├── reference/                       # Style, subject, location references
-│   ├── storyboard/                      # Gemini frames + lastframes
-│   ├── brand/                           # Logo, fonts, brand.json
-│   └── audio/                           # Music, SFX
-├── cache/
-│   ├── director-plan.json               # Cached Director enrichment
-│   ├── brand-context.json               # Brand context for Copy Engine
-│   ├── fal-cache.json                   # Kling generation cache
-│   ├── captions.json                    # Whisper transcript cache
-│   └── cost-log.json                    # API spend log
-└── output/
-    ├── audio/voiceover.mp3              # ElevenLabs voiceover
-    ├── images/                          # Brand images (story, square, landscape)
-    ├── clips/scene-*.mp4                # Kling video clips
-    ├── copy/                            # Platform copy JSONs
-    ├── final/                           # Final rendered MP4
-    └── deliverables/                    # Platform-ready packages
-```
+| Service | Role | Cost |
+|---------|------|------|
+| **Claude Sonnet 4.6** | Director AI — prompt enrichment, cinematography planning | ~$0.10 |
+| **Gemini 3 Pro Image** | Storyboard frames + brand images | ~$0.05-0.15/image |
+| **GPT Image 1** | Alternative image provider (better text rendering) | ~$0.04-0.08/image |
+| **Kling v2.1/v3** (fal.ai) | Image-to-video clip generation | $0.49-2.24/clip |
+| **Veo 3.1** (Google) | Text/image-to-video (complex scenes) | ~$4.50-6.00/clip |
+| **ElevenLabs** | Voiceover generation | ~$0.30-1.00 |
+| **OpenAI Whisper** | Word-level caption transcription | ~$0.01-0.05 |
+| **Remotion** | Programmatic video composition | Free (local) |
 
 ---
 
 ## Troubleshooting
 
-<details>
-<summary>Common issues</summary>
-
-**fal.ai returns 403 or balance error** — Top up at [fal.ai/dashboard](https://fal.ai/dashboard). Cached clips in `fal-cache.json` are never regenerated.
-
-**Gemini returns no image data** — Check `GEMINI_API_KEY` is set. The storyboard step is non-fatal — falls back to text-to-video mode.
-
-**FFmpeg not found** — `brew install ffmpeg` and restart your terminal.
-
-**Remotion bundle error** — Run `npm run build` first to catch TypeScript errors.
-
-**Whisper returns no word timestamps** — Audio must be at least 1 second. Set `captions: false` for very short scripts.
-
-**ElevenLabs quota exceeded** — Cached `voiceover.mp3` is reused on re-runs.
-
-**"No config.json found"** — Run `npm run new-project -- --name <name> --format youtube-short`
-
-**Storyboard images not picked up** — Files must be named exactly `scene-1.png`, `scene-2.png` (lowercase, hyphens) in `assets/storyboard/`.
-
-</details>
+| Problem | Fix |
+|---------|-----|
+| `GEMINI_API_KEY not set` | Add key to `.env` — get one at [aistudio.google.com](https://aistudio.google.com) |
+| fal.ai 403 or balance error | Top up at [fal.ai/dashboard](https://fal.ai/dashboard) |
+| Gemini returns no image data | Check API key. Storyboard step is non-fatal — continues without it |
+| FFmpeg not found | `brew install ffmpeg` and restart terminal |
+| Remotion bundle error | Run `npm run build` first to catch TypeScript errors |
+| Storyboard images not detected | Files must be named `scene-1.png` (lowercase, hyphens) in `storyboard/` |
+| Voiceover not generating | Check `ELEVENLABS_API_KEY` and that `script` is set in config |
+| Re-running regenerates everything | It shouldn't — all steps are idempotent. Delete specific output files to force regeneration |

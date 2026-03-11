@@ -12,6 +12,9 @@ program
   .option('--storyboard-only', 'Generate Gemini storyboard frames and stop for review')
   .option('--dry-run', 'Preview pipeline without calling paid APIs')
   .option('--json-output', 'Print JSON summary of pipeline results')
+  .option('--variations <n>', 'Generate N storyboard variations per scene (1-4, implies --storyboard-only)', parseInt)
+  .option('--airtable-review', 'Enable Airtable review gates for storyboard and clips')
+  .option('--regenerate <numbers>', 'Regenerate specific images by number (e.g. 3,5)')
   .parse();
 
 const opts = program.opts<{
@@ -20,6 +23,9 @@ const opts = program.opts<{
   storyboardOnly?: boolean;
   dryRun?: boolean;
   jsonOutput?: boolean;
+  variations?: number;
+  airtableReview?: boolean;
+  regenerate?: string;
 }>();
 
 async function main(): Promise<void> {
@@ -34,6 +40,24 @@ async function main(): Promise<void> {
   if (opts.storyboardOnly === true) runOpts.storyboardOnly = true;
   if (opts.dryRun === true) runOpts.dryRun = true;
   if (opts.jsonOutput === true) runOpts.jsonOutput = true;
+  if (opts.airtableReview === true) runOpts.airtableReview = true;
+
+  if (opts.variations !== undefined) {
+    const n = Math.min(Math.max(opts.variations, 1), 4);
+    runOpts.variations = n;
+    if (runOpts.storyboardOnly !== true) {
+      logger.warn('--variations implies --storyboard-only. Enabling storyboard-only mode.');
+      runOpts.storyboardOnly = true;
+    }
+  }
+
+  if (opts.regenerate !== undefined) {
+    runOpts.regenerateImages = opts.regenerate
+      .split(',')
+      .map((n) => parseInt(n.trim(), 10))
+      .filter((n) => !isNaN(n));
+    logger.info(`Will regenerate image(s): ${runOpts.regenerateImages.join(', ')}`);
+  }
 
   const result = await runPipeline(opts.project, runOpts);
 

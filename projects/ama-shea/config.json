@@ -1,0 +1,32 @@
+{
+  "mode": "brand-images",
+  "title": "ama-shea-whipped-butter",
+  "brand": "Ama Shea",
+  "brief": "Ama Shea is a luxury African shea butter skincare brand rooted in Ghanaian heritage, founded by a West African woman bringing her grandmother's traditional shea butter recipes to the modern beauty market. Hero product is the Pure Whipped Shea Body Butter — handcrafted in small batches from raw unrefined shea nuts sourced from women's cooperatives in Northern Ghana. No parabens, no synthetic fragrance. Visual tone: warm golden amber lighting, earthy textures, raw ingredients on dark wood, West African textiles, golden hour skin close-ups. Premium but grounded — luxury that feels handmade, not factory. Brand story: From her hands to yours.",
+  "clips": [
+    {
+      "prompt": "Hero product shot on dark weathered wood surface, surrounded by raw shea nuts and dried botanicals, warm golden-amber key light from camera-right, shallow depth of field, editorial product photography, earthy muted tones with warm highlights"
+    },
+    {
+      "prompt": "Woman's hands scooping whipped shea butter from open jar, warm brown skin tones, soft diffused window light, close-up 85mm lens, natural skin texture visible, editorial beauty photography"
+    },
+    {
+      "prompt": "Overhead flat lay of product jar centered on woven kente cloth, raw shea nuts scattered around, dried lavender sprigs, dark slate surface, soft even studio lighting, luxury minimalist composition"
+    },
+    {
+      "prompt": "Raw unrefined shea nuts cracked open on rough wooden mortar, golden shea oil pooling, warm side light casting long shadows, macro detail shot, ingredient storytelling, earthy documentary style"
+    },
+    {
+      "prompt": "Close-up macro of whipped shea butter texture showing creamy peaks and folds, warm amber backlight catching the surface sheen, shallow focus, clean minimal background, product detail photography"
+    },
+    {
+      "prompt": "Luxurious product jar on a bed of raw shea butter chunks and gold leaf accents, dramatic chiaroscuro lighting, rich dark background, premium beauty campaign aesthetic, warm golden tones",
+      "imageProvider": "gpt-image"
+    },
+    {
+      "prompt": "Woman applying shea butter to her shoulder and collarbone, glowing warm brown skin, golden hour backlight through sheer curtain, intimate beauty moment, soft bokeh, editorial lifestyle photography",
+      "imageProvider": "gpt-image"
+    }
+  ],
+  "imageFormats": ["square"]
+}

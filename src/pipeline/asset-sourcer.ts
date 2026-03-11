@@ -265,7 +265,7 @@ async function sourceMusic(
     logger.info(
       'No music API key found. To add background music, either:\n' +
       '  1. Set PIXABAY_API_KEY in .env for auto-sourcing\n' +
-      '  2. Place a music.mp3 file in the project\'s assets/audio/ directory\n' +
+      '  2. Place a music.mp3 file in the project directory\n' +
       '  3. Set music: false in config.json to skip music',
     );
     return 'skipped';
@@ -359,7 +359,7 @@ export async function sourceAssets(
 ): Promise<AssetSourcingResult> {
   logger.step('Asset sourcer: checking for auto-sourceable assets...');
 
-  const assetsDir = path.join(projectDir, 'assets');
+  const assetsDir = projectDir;
   const result: AssetSourcingResult = {
     colorsExtracted: false,
     colorSource: 'skipped',
@@ -373,7 +373,7 @@ export async function sourceAssets(
   };
 
   // ── 1. Brand Colors ─────────────────────────────────────────────────────────
-  // AssetLoader reads assets/brand/brand.json — save there for integration
+  // AssetLoader reads brand/brand.json — save there for integration
   const brandJsonPath = path.join(assetsDir, 'brand', 'brand.json');
 
   if (await fs.pathExists(brandJsonPath)) {
@@ -385,7 +385,7 @@ export async function sourceAssets(
     const clientUrl = config.client && /^https?:\/\//i.test(config.client)
       ? config.client
       : undefined;
-    const subjectPath = path.join(assetsDir, 'reference', 'subject.jpg');
+    const subjectPath = path.join(assetsDir, 'product.jpg');
     const hasSubject = await fs.pathExists(subjectPath);
 
     if (dryRun) {
@@ -440,7 +440,7 @@ export async function sourceAssets(
   }
 
   // ── 2. Style Reference ──────────────────────────────────────────────────────
-  const stylePath = path.join(assetsDir, 'reference', 'style.png');
+  const stylePath = path.join(assetsDir, 'style.png');
 
   if (await fs.pathExists(stylePath)) {
     logger.skip('Asset sourcer: style.png already exists — skipping.');
@@ -493,8 +493,8 @@ export async function sourceAssets(
   }
 
   // ── 3. Location Reference ───────────────────────────────────────────────────
-  const locationPath = path.join(assetsDir, 'reference', 'location.png');
-  const locationPathJpg = path.join(assetsDir, 'reference', 'location.jpg');
+  const locationPath = path.join(assetsDir, 'location.png');
+  const locationPathJpg = path.join(assetsDir, 'location.jpg');
 
   if (await fs.pathExists(locationPath) || await fs.pathExists(locationPathJpg)) {
     logger.skip('Asset sourcer: location reference already exists — skipping.');
@@ -546,8 +546,8 @@ export async function sourceAssets(
   }
 
   // ── 4. Background Music ─────────────────────────────────────────────────────
-  const musicPath = path.join(assetsDir, 'audio', 'music.mp3');
-  const attributionPath = path.join(assetsDir, 'audio', 'music-attribution.txt');
+  const musicPath = path.join(assetsDir, 'music.mp3');
+  const attributionPath = path.join(assetsDir, 'music-attribution.txt');
 
   if (config.music === false) {
     logger.skip('Asset sourcer: music disabled in config — skipping.');
