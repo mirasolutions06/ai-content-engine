@@ -37,7 +37,7 @@ function buildBrandPrompt(
   if (enrichedScene?.mood) parts.push(`Mood: ${enrichedScene.mood}.`);
   if (brandContext?.visualStyle) parts.push(`Style: ${brandContext.visualStyle}.`);
 
-  parts.push(`Photorealistic, editorial photography. No text, no logos, no watermarks.`);
+  parts.push(`Photorealistic, editorial photography. Single image only — no collage, no grid, no split frame, no multiple panels. No text, no logos, no watermarks.`);
 
   return parts.join(' ');
 }
