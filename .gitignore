@@ -1,16 +1,19 @@
 node_modules/
 dist/
 .env
-projects/*/output/
-projects/*/cache/
-projects/*/fal-cache.json
 *.mp4
 *.mp3
 
 # macOS
 .DS_Store
 
-# Generated storyboard frames and reference images
+# Project outputs and caches (generated, not source)
+projects/*/output/
+projects/*/cache/
+projects/*/storyboard/
+projects/*/fal-cache.json
+
+# Legacy asset paths (old project layout)
 projects/*/assets/storyboard/*-lastframe.png
 projects/*/assets/storyboard/scene_*.png
 projects/*/assets/brand/scene_*.png
