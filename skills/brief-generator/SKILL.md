@@ -107,6 +107,38 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
 - `colorUnify`: omit for default `false`. Set to `true` to apply a subtle brand-colored overlay on clips to unify color temperature across different Kling-generated scenes.
 - `colorUnifyOpacity`: omit for default `0.06` (6%). Adjust 0-1 if color unity overlay is too strong or subtle.
 
+### Brand-Images Config Best Practices
+
+These fields are critical for brand-images mode quality:
+
+**`products` field (strongly recommended):**
+List the exact product(s) in the campaign. Prevents Gemini from inventing phantom products.
+```json
+"products": ["amber glass dropper serum bottle"]
+```
+
+**`skipAutoRefs` field (use when appropriate):**
+Skip auto-generated style/location references when they're not needed. Product-only campaigns with no model or specific location should skip both to avoid polluting generation with low-quality auto-refs.
+```json
+"skipAutoRefs": ["style", "location"]
+```
+
+**Reference images (the biggest quality lever):**
+Provide specific reference images in the project directory. Named files get labeled instructions in the Gemini prompt:
+- `model-1.jpg`, `model-2.jpg` — person's face/features (CRITICAL for multi-person scenes)
+- `product-1.jpg`, `product-2.jpg` — exact product appearance
+- `style.jpg` — visual mood reference
+- `location.jpg` — environment reference
+
+More refs = better consistency. Nike used 6 refs (3 shoe angles, model, top, tights) and got campaign-grade results. Ama Shea used zero refs and still scored 4.5-5.0/5 with good prompts.
+
+**Prompt style for brand-images:**
+Write LOOSE, evocative prompts — not hyper-specific product descriptions. The Director will enrich them with cinematography detail. Over-specifying (exact materials, exact compositions) constrains Gemini and degrades output.
+
+Good: `"Hero product shot on dark weathered wood surface, surrounded by raw shea nuts and dried botanicals, warm golden-amber key light from camera-right, shallow depth of field, editorial product photography"`
+
+Bad: `"Glass jar of whipped shea body butter with wooden lid on dark weathered wood, raw shea nuts and a small bowl of golden shea oil beside it, warm amber key light from camera-right at exactly 45 degrees, f/2.8 shallow depth of field"`
+
 ### Scene Prompt Rules
 
 These are critical. Bad prompts waste expensive API calls. **The #1 quality issue is scenes that look like 4 different clips glued together.** Follow these rules to produce visually coherent content.
@@ -119,7 +151,7 @@ ALL scenes must share the SAME:
 - **Color temperature** — pick ONE palette (e.g. "warm amber tones, muted highlights") and keep it consistent
 - **Subject** — the same product/person must appear in EVERY scene
 
-The Director AI enforces this with global `lightingSetup`, `backgroundDescription`, and `colorPalette` fields. Your prompts should already be consistent so the Director has good material to work with.
+The Director AI enriches each prompt with detailed `lightingSetup`, `backgroundDescription`, and `colorPalette`. Your prompts should be consistent but leave room for the Director to add cinematography detail — don't over-specify what the Director will fill in.
 
 #### Progressive Reveal Shot Framework
 

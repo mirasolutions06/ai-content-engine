@@ -30,6 +30,7 @@ function buildBrandPrompt(
 ): string {
   // Use the Director's enriched prompt if available — it has better cinematography direction
   const enrichedScene = brandContext?.scenes?.find((s) => s.index === sceneIndex);
+  const useEnriched = enrichedScene?.enrichedPrompt != null;
   const prompt = enrichedScene?.enrichedPrompt ?? scenePrompt;
 
   const parts: string[] = [];
@@ -53,14 +54,16 @@ function buildBrandPrompt(
   // The scene description — enriched if Director ran, raw otherwise
   parts.push(prompt + '.');
 
-  // Layer in mood/style from Director if available
-  if (enrichedScene?.mood) parts.push(`Mood: ${enrichedScene.mood}.`);
-  if (brandContext?.visualStyle) parts.push(`Style: ${brandContext.visualStyle}.`);
-
-  // Director global consistency fields (same pattern as storyboard buildImagePrompt)
-  if (brandContext?.lightingSetup) parts.push(`Lighting: ${brandContext.lightingSetup}.`);
-  if (brandContext?.backgroundDescription) parts.push(`Environment: ${brandContext.backgroundDescription}.`);
-  if (brandContext?.colorPalette) parts.push(`Color palette: ${brandContext.colorPalette}.`);
+  // Only layer global Director context when using the raw config prompt.
+  // The enrichedPrompt already has lighting, color, mood, and environment baked in —
+  // repeating them bloats the prompt and degrades output (especially without strong refs).
+  if (!useEnriched) {
+    if (enrichedScene?.mood) parts.push(`Mood: ${enrichedScene.mood}.`);
+    if (brandContext?.visualStyle) parts.push(`Style: ${brandContext.visualStyle}.`);
+    if (brandContext?.lightingSetup) parts.push(`Lighting: ${brandContext.lightingSetup}.`);
+    if (brandContext?.backgroundDescription) parts.push(`Environment: ${brandContext.backgroundDescription}.`);
+    if (brandContext?.colorPalette) parts.push(`Color palette: ${brandContext.colorPalette}.`);
+  }
 
   // Product fidelity — prevent Gemini from inventing products not in references
   if (products && products.length > 0) {

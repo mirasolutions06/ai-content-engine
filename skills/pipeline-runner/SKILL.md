@@ -233,9 +233,18 @@ Error: Gemini returned no image data for scene 2
 # Dry run
 npm start -- --project {name} --dry-run
 # Full run (no storyboard step — images only)
-npm start -- --project {name} --json-output
+npm start -- --project {name}
 ```
 No storyboard preview needed — brand images are cheap (~$0.05 each) and fast. Still do the dry run to show what will be generated.
+
+**QA scoring:** After each image generates, Claude Haiku vision scores it on model accuracy, product accuracy, composition, and artifacts (1-5 each). Results are logged inline and saved to `cache/qa-results.json`. Scores below 3.0 get a warning. QA does not auto-regenerate — it's a quality signal for review.
+
+**Key quality factors for brand-images:**
+- `products` field prevents phantom product invention
+- `skipAutoRefs` avoids low-quality auto-generated style/location references
+- Reference images (`model-*.jpg`, `product-*.jpg`) are the single biggest quality lever
+- The Director enriches prompts with cinematography detail — config prompts should be evocative but not hyper-specific (leave room for enrichment)
+- Scene-1 anchoring: the first generated image becomes the style reference for all subsequent images
 
 ### video mode — all image outputType
 If every clip has `"outputType": "image"`, no video generation runs. Storyboard frames ARE the output — copied to `output/images/`. Skip storyboard review gate (images are cheap, ~$0.04-0.08 each). Remotion is skipped entirely.

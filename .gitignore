@@ -7,14 +7,6 @@ dist/
 # macOS
 .DS_Store
 
-# Project outputs and caches (generated, not source)
-projects/*/output/
-projects/*/cache/
-projects/*/storyboard/
-projects/*/fal-cache.json
-
-# Legacy asset paths (old project layout)
-projects/*/assets/storyboard/*-lastframe.png
-projects/*/assets/storyboard/scene_*.png
-projects/*/assets/brand/scene_*.png
-projects/*/assets/reference/
+# Project directories (client configs + generated assets)
+projects/*/
+!projects/_shared/
