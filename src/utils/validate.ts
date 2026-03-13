@@ -1,4 +1,9 @@
-import type { VideoConfig } from '../types/index.js';
+import type { VideoConfig, BrandShotType } from '../types/index.js';
+
+const VALID_SHOT_TYPES: BrandShotType[] = [
+  'product-hero', 'application-closeup', 'lifestyle',
+  'flat-lay', 'texture-detail', 'portrait',
+];
 
 /**
  * Validates that required environment variables are set.
@@ -55,9 +60,9 @@ export function validateConfig(config: VideoConfig): void {
     for (let i = 0; i < config.clips.length; i++) {
       const clip = config.clips[i];
       if (!clip) throw new Error(`clips[${i}] is undefined`);
-      if (!clip.prompt && !clip.imageReference && !clip.url) {
+      if (!clip.prompt && !clip.imageReference && !clip.url && !clip.shotType) {
         throw new Error(
-          `clips[${i}] has no "prompt", "imageReference", or "url". ` +
+          `clips[${i}] has no "prompt", "shotType", "imageReference", or "url". ` +
           `Each clip needs at least one of these.`,
         );
       }
@@ -109,6 +114,15 @@ export function validateConfig(config: VideoConfig): void {
         if (typeof clip.duration !== 'number' || clip.duration < 1 || clip.duration > 15) {
           throw new Error(
             `clips[${i}].duration must be a number between 1 and 15 seconds. Got: ${clip.duration}`,
+          );
+        }
+      }
+
+      if (clip.shotType !== undefined) {
+        if (!VALID_SHOT_TYPES.includes(clip.shotType as BrandShotType)) {
+          throw new Error(
+            `clips[${i}].shotType "${clip.shotType}" is not valid. ` +
+            `Valid values: ${VALID_SHOT_TYPES.join(' | ')}`,
           );
         }
       }

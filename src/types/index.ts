@@ -16,6 +16,16 @@ export type VideoProvider = 'kling-v2.1' | 'kling-v3' | 'veo-3.1' | 'veo-3.1-fas
 export type ImageProvider = 'gemini' | 'gpt-image';
 export type ClipOutputType = 'image' | 'video' | 'animation';
 
+// ─── Brand Shot Types (for brand-images mode) ───────────────────────────────
+
+export type BrandShotType =
+  | 'product-hero'
+  | 'application-closeup'
+  | 'lifestyle'
+  | 'flat-lay'
+  | 'texture-detail'
+  | 'portrait';
+
 // ─── Brand Image Types (from brand-pack merge) ───────────────────────────────
 
 export type ImageFormat = 'story' | 'square' | 'landscape';
@@ -46,6 +56,8 @@ export interface CTAConfig {
 export interface VideoClip {
   /** Text prompt describing what should happen in this clip */
   prompt?: string;
+  /** Shot type for brand-images mode — Director expands into full prompt using brand brief. Alternative to writing detailed prompts. */
+  shotType?: BrandShotType;
   /** Absolute or project-relative path to storyboard image (enables image-to-video mode) */
   imageReference?: string;
   /** Pre-generated clip URL — skip generation entirely */
@@ -107,6 +119,12 @@ export interface VideoConfig {
   colorGrade?: boolean;
   /** Image generation provider. Default: 'gemini'. */
   imageProvider?: ImageProvider;
+  /** Director model override. Default: 'claude-opus-4-6'. */
+  directorModel?: 'claude-opus-4-6' | 'claude-sonnet-4-6';
+  /** Explicit product list. Only these products should appear in generated images. Prevents Gemini from inventing products mentioned in the brief but not in references. */
+  products?: string[];
+  /** Skip auto-sourcing style and/or location references. Use when auto-generated refs add noise (e.g. studio skincare campaigns). */
+  skipAutoRefs?: ('style' | 'location')[];
 }
 
 // ─── Video Generation ───────────────────────────────────────────────────────
@@ -306,6 +324,12 @@ export interface BrandContext {
   hookText: string;
   cta: string;
   targetAudience: string;
+  /** Director's global lighting setup for cross-scene consistency */
+  lightingSetup?: string;
+  /** Director's global background/environment description */
+  backgroundDescription?: string;
+  /** Director's global color palette (descriptive words, no hex codes) */
+  colorPalette?: string;
   scenes: Array<{
     index: number;
     prompt: string;
@@ -376,4 +400,17 @@ export interface PipelineResult {
   };
   estimatedCost: number;
   cachedSteps: string[];
+}
+
+// ─── Image QA ────────────────────────────────────────────────────────────────
+
+export interface ImageQAResult {
+  scene: string;
+  score: number;
+  modelAccuracy: number;
+  productAccuracy: number;
+  composition: number;
+  artifacts: number;
+  issues: string[];
+  pass: boolean;
 }

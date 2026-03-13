@@ -2,32 +2,34 @@
   "mode": "brand-images",
   "title": "glow-lab-skincare",
   "brand": "Glow Lab",
-  "brief": "Glow Lab is a clean clinical skincare brand. Glass bottles, serums and moisturizers. Bright airy studio lighting, white and cream backgrounds, diverse skin tones, dewy skin close-ups. Minimal, modern, science-meets-beauty aesthetic.",
+  "brief": "Glow Lab premium skincare. Hero product: amber glass dropper serum bottle. Campaign for Instagram and digital ads. Golden morning light, minimal white/cream spaces. One model: blonde woman, blue-green eyes, no makeup, real skin. Warm, intimate, aspirational but not untouchable. Think Aesop meets Glossier.",
+  "products": ["amber glass dropper serum bottle"],
+  "skipAutoRefs": ["style", "location"],
   "clips": [
     {
-      "prompt": "Close-up of woman's face applying serum drops to cheek with glass dropper, dewy glowing skin, soft studio lighting, natural makeup, editorial beauty photography"
+      "prompt": "Woman applying serum to her cheek with the glass dropper, morning bathroom light, close-up on her face and hand, natural relaxed expression, Instagram skincare campaign",
+      "imageFormat": "story"
     },
     {
-      "prompt": "Woman applying moisturizer to bare shoulder and collarbone, glowing hydrated skin, bright airy backlight, intimate body care moment, editorial lifestyle photography"
+      "prompt": "The amber glass serum bottle on a white marble bathroom counter, morning light catching the golden liquid inside, water droplets on the marble, minimal product photography for Instagram",
+      "imageFormat": "square"
     },
     {
-      "prompt": "Woman holding the amber glass dropper serum bottle in her left hand at chin height while her right fingertips apply serum to her cheek, the product label clearly visible, dewy glowing skin, soft studio lighting, medium close-up editorial beauty photography"
+      "prompt": "Woman massaging serum into her jawline with her eyes closed, bare shoulders, soft natural light from a window, peaceful morning skincare moment, beauty campaign close-up",
+      "imageFormat": "square"
     },
     {
-      "prompt": "Woman's hands cupping glass serum bottle close-up, soft even lighting, clean nails, white surface, product hero moment, minimal editorial photography"
+      "prompt": "The amber serum bottle and a fresh eucalyptus sprig on rumpled white linen, overhead morning light, clean editorial flat lay for Instagram",
+      "imageFormat": "landscape"
     },
     {
-      "prompt": "Hero product shot of glass serum bottle and moisturizer jar on frosted glass shelf, soft backlight creating glow behind bottles, clean white studio, luxury skincare campaign"
+      "prompt": "Woman holding the serum bottle close to her face, looking at camera with a slight smile, soft window light, intimate product-in-hand moment for digital ad campaign",
+      "imageFormat": "story"
     },
     {
-      "prompt": "Woman touching the back of her neck with fingertips, smooth glowing skin, hair swept to one side, soft warm backlight, intimate self-care moment, editorial beauty photography"
-    },
-    {
-      "prompt": "Woman massaging serum into jawline with fingertips, eyes closed in relaxation, dewy luminous skin catching soft studio light, close-up editorial beauty photography"
-    },
-    {
-      "prompt": "Flat lay of glass serum bottle and moisturizer jar on wet marble surface with water droplets and eucalyptus sprig, overhead editorial product photography, soft diffused light"
+      "prompt": "Close-up of woman's glowing neck and collarbone after applying serum, dewy skin catching warm sidelight, hair swept to one side, beauty texture shot for skincare campaign",
+      "imageFormat": "landscape"
     }
   ],
-  "imageFormats": ["square"]
+  "imageFormats": ["square", "story", "landscape"]
 }

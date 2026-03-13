@@ -14,7 +14,7 @@ import type {
   PipelineMode,
 } from '../types/index.js';
 
-const MODEL = 'claude-sonnet-4-6';
+const DEFAULT_MODEL = 'claude-opus-4-6';
 
 const SYSTEM_PROMPT = `You are an expert short-form video director. You create DirectorPlans for 15-30 second product videos (TikTok, YouTube Shorts, Instagram Reels, ads). Your videos must feel like ONE professional shoot — not separate clips glued together.
 
@@ -229,7 +229,16 @@ ENRICHED PROMPT RULES
    - Always describe surface material ("on white marble", "dark slate", "raw linen")
    - Specify reflection: "matte finish", "glossy catch light", "soft sheen"
    - One product per frame — multi-product confuses generators
-   - Include scale reference when relevant (hands, objects nearby)`;
+   - Include scale reference when relevant (hands, objects nearby)
+
+8. When a clip has "shotType" but no "prompt", generate a full enrichedPrompt appropriate for that shot type using the brand brief and product details. Shot types:
+   - "product-hero": Full product beauty shot — the money shot. Product centered, best lighting, maximum desire.
+   - "application-closeup": Product being applied or used. Close on hands, skin, or interaction. Intimate moment.
+   - "lifestyle": Person using product in a natural setting. Environmental context, relaxed feel.
+   - "flat-lay": Overhead editorial arrangement. Product with complementary props on a surface.
+   - "texture-detail": Extreme close-up on material, texture, or surface quality. Sensory hook.
+   - "portrait": Person-focused with product secondary. Face, expression, beauty.
+   Write the enrichedPrompt as if the user had written a detailed prompt — natural, vivid, specific to the brand.`;
 
 let BEST_PRACTICES_LOADED = '';
 
@@ -311,6 +320,9 @@ async function saveBrandContext(
     hookText: plan.suggestedHookText ?? config.hookText ?? '',
     cta: plan.suggestedCta?.text ?? config.cta?.text ?? '',
     targetAudience: '',
+    ...(plan.lightingSetup && { lightingSetup: plan.lightingSetup }),
+    ...(plan.backgroundDescription && { backgroundDescription: plan.backgroundDescription }),
+    ...(plan.colorPalette && { colorPalette: plan.colorPalette }),
     scenes: plan.clips.map((c) => ({
       index: c.sceneIndex,
       prompt: config.clips[c.sceneIndex - 1]?.prompt ?? '',
@@ -511,7 +523,8 @@ export async function runDirector(
 
   // ── Build multimodal content for Claude ──────────────────────────────────────
 
-  logger.step(`Director: calling ${MODEL} as ${isBrandImages ? 'photography art director' : 'video director'}...`);
+  const model = config.directorModel ?? DEFAULT_MODEL;
+  logger.step(`Director: calling ${model} as ${isBrandImages ? 'photography art director' : 'video director'}...`);
 
   const brief = isBrandImages
     ? {
@@ -522,6 +535,7 @@ export async function runDirector(
         clips: config.clips.map((c, i) => ({
           sceneIndex: i + 1,
           prompt: c.prompt ?? '',
+          ...(c.shotType !== undefined && { shotType: c.shotType }),
         })),
         imageFormats: config.imageFormats ?? ['story', 'square', 'landscape'],
         brandColors: assets.brandColors,
@@ -576,7 +590,7 @@ export async function runDirector(
       : basePrompt;
 
     const response = await client.messages.create({
-      model: MODEL,
+      model,
       max_tokens: 4096,
       system: systemPrompt,
       messages: [{ role: 'user', content: contentParts }],

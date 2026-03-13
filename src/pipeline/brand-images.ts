@@ -3,10 +3,19 @@ import OpenAI from 'openai';
 import path from 'path';
 import fs from 'fs-extra';
 import { logger } from '../utils/logger.js';
+import { evaluateImage, saveQAResults } from '../utils/image-qa.js';
 import { FORMAT_ASPECT } from '../types/index.js';
-import type { VideoConfig, ImageFormat, ImageProvider, BrandContext } from '../types/index.js';
+import type { VideoConfig, ImageFormat, ImageProvider, BrandContext, ImageQAResult } from '../types/index.js';
 
 const MODEL = 'gemini-3-pro-image-preview';
+
+const SYSTEM_INSTRUCTION =
+  'You are a world-class commercial photographer shooting a global advertising campaign. ' +
+  'Generate photorealistic images with natural skin textures, accurate product details, ' +
+  'and bold cinematic composition. Include natural imperfections — visible pores, stray hairs, ' +
+  'fabric creases, minor asymmetry in framing. These should look like a real photographer made ' +
+  'intentional creative choices, not generic stock photo defaults. ' +
+  'Avoid: AI artifacts, plastic skin, overprocessed HDR, floating limbs, extra fingers, blurred faces.';
 
 // ── Prompt building ──────────────────────────────────────────────────────────
 
@@ -16,12 +25,23 @@ function buildBrandPrompt(
   brief: string | undefined,
   brandContext?: BrandContext,
   sceneIndex?: number,
+  hasAnchor?: boolean,
+  products?: string[],
 ): string {
   // Use the Director's enriched prompt if available — it has better cinematography direction
   const enrichedScene = brandContext?.scenes?.find((s) => s.index === sceneIndex);
   const prompt = enrichedScene?.enrichedPrompt ?? scenePrompt;
 
   const parts: string[] = [];
+
+  // For scenes 2+, enforce visual consistency with the anchor frame
+  if (hasAnchor) {
+    parts.push(
+      `Generate a photograph that belongs to the SAME campaign shoot as the style anchor image above.`,
+      `CRITICAL: Match the SAME lighting quality, color temperature, and overall atmosphere as the anchor.`,
+      `Only change the environment and composition as described below.`,
+    );
+  }
 
   // Brand context as a natural introduction
   if (brief) {
@@ -36,6 +56,16 @@ function buildBrandPrompt(
   // Layer in mood/style from Director if available
   if (enrichedScene?.mood) parts.push(`Mood: ${enrichedScene.mood}.`);
   if (brandContext?.visualStyle) parts.push(`Style: ${brandContext.visualStyle}.`);
+
+  // Director global consistency fields (same pattern as storyboard buildImagePrompt)
+  if (brandContext?.lightingSetup) parts.push(`Lighting: ${brandContext.lightingSetup}.`);
+  if (brandContext?.backgroundDescription) parts.push(`Environment: ${brandContext.backgroundDescription}.`);
+  if (brandContext?.colorPalette) parts.push(`Color palette: ${brandContext.colorPalette}.`);
+
+  // Product fidelity — prevent Gemini from inventing products not in references
+  if (products && products.length > 0) {
+    parts.push(`The only product(s) in this campaign: ${products.join(', ')}. Do not add or invent other products that aren't listed here.`);
+  }
 
   parts.push(`Photorealistic, editorial photography. Single image only — no collage, no grid, no split frame, no multiple panels. No text, no logos, no watermarks.`);
 
@@ -122,6 +152,8 @@ async function generateBrandImage(
   outputPath: string,
   referenceImagePaths: string[],
   brandContext: BrandContext | undefined,
+  scene1AnchorPath?: string,
+  products?: string[],
 ): Promise<string | null> {
   const apiKey = process.env['GEMINI_API_KEY'];
   if (!apiKey) {
@@ -134,7 +166,13 @@ async function generateBrandImage(
     return outputPath;
   }
 
-  logger.step(`Generating ${path.basename(outputPath, path.extname(outputPath))}...`);
+  const hasAnchor = scene1AnchorPath !== undefined && (await fs.pathExists(scene1AnchorPath));
+
+  logger.step(
+    `Generating ${path.basename(outputPath, path.extname(outputPath))}` +
+    (hasAnchor ? ' (anchored to scene 1 style)' : '') +
+    `...`,
+  );
 
   try {
     const ai = new GoogleGenAI({ apiKey });
@@ -143,52 +181,64 @@ async function generateBrandImage(
     type TextPart = { text: string };
     const parts: Array<TextPart | InlineDataPart> = [];
 
-    // Include all reference images with labels — Gemini supports up to 14
-    const refLabels: string[] = [];
-    for (const refPath of referenceImagePaths) {
+    // Include reference images with INTERLEAVED labels — model first (most important for face consistency)
+    // Sort: model refs first, then product, then style, then location
+    const sortOrder: Record<string, number> = { model: 0, product: 1, style: 2, location: 3 };
+    const sortedRefs = [...referenceImagePaths].sort((a, b) => {
+      const aType = path.basename(a).split(/[-.]/, 1)[0] ?? '';
+      const bType = path.basename(b).split(/[-.]/, 1)[0] ?? '';
+      return (sortOrder[aType] ?? 9) - (sortOrder[bType] ?? 9);
+    });
+
+    let hasModelRef = false;
+    let hasProductRef = false;
+    for (const refPath of sortedRefs) {
       if (!(await fs.pathExists(refPath))) continue;
       const buffer = await fs.readFile(refPath);
       const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
       const mimeType = isPng ? 'image/png' : 'image/jpeg';
-      parts.push({ inlineData: { mimeType, data: buffer.toString('base64') } });
-      // Label by filename so Gemini knows what each reference is
       const basename = path.basename(refPath, path.extname(refPath));
-      refLabels.push(basename);
-    }
 
-    // Build specific instructions per reference type so Gemini knows exactly what to do
-    let refPrefix = '';
-    if (refLabels.length > 0) {
-      const instructions: string[] = [];
-      const hasModel = refLabels.some((l) => l.startsWith('model'));
-      const hasProduct = refLabels.some((l) => l.startsWith('product'));
-
-      for (let idx = 0; idx < refLabels.length; idx++) {
-        const label = refLabels[idx]!;
-        if (label.startsWith('model')) {
-          instructions.push(`Image ${idx + 1} ("${label}") is the MODEL/PERSON. Use this person's EXACT face, features, skin tone, and body in every image that includes a person. This must be recognizably the SAME person across all images.`);
-        } else if (label.startsWith('product')) {
-          instructions.push(`Image ${idx + 1} ("${label}") is the ACTUAL PRODUCT. When the scene includes a product, show THIS exact product — same shape, label, color, packaging.`);
-        } else if (label.startsWith('style')) {
-          instructions.push(`Image ${idx + 1} ("${label}") is a STYLE reference — match this visual mood and aesthetic.`);
-        } else if (label.startsWith('location')) {
-          instructions.push(`Image ${idx + 1} ("${label}") is a LOCATION reference — use this environment/background.`);
-        }
+      // Interleave: text label BEFORE each image so Gemini knows what it's looking at
+      if (basename.startsWith('model')) {
+        parts.push({ text: `[MODEL/PERSON REFERENCE — "${basename}". Use this person's EXACT face, features, skin tone, hair, and body. This must be recognizably the SAME person in every image.]` });
+        hasModelRef = true;
+      } else if (basename.startsWith('product')) {
+        parts.push({ text: `[PRODUCT REFERENCE — "${basename}". Show THIS exact product — same shape, color, details.]` });
+        hasProductRef = true;
+      } else if (basename.startsWith('style')) {
+        parts.push({ text: `[STYLE REFERENCE — "${basename}". Match this visual mood and aesthetic.]` });
+      } else if (basename.startsWith('location')) {
+        parts.push({ text: `[LOCATION REFERENCE — "${basename}". Use this environment/background.]` });
       }
-
-      if (hasModel) instructions.push('CRITICAL: The person must look identical across all generated images — same face, same features, same skin tone.');
-      if (hasProduct) instructions.push('CRITICAL: The product must match the reference exactly — do not invent a different bottle, jar, or label.');
-
-      refPrefix = instructions.join(' ') + ' ';
+      parts.push({ inlineData: { mimeType, data: buffer.toString('base64') } });
     }
 
-    parts.push({ text: refPrefix + buildBrandPrompt(scenePrompt, brand, brief, brandContext, sceneIndex) });
+    // Scene 1 anchor — THE style reference for all subsequent images
+    if (hasAnchor && scene1AnchorPath) {
+      const buffer = await fs.readFile(scene1AnchorPath);
+      const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+      const mimeType = isPng ? 'image/png' : 'image/jpeg';
+      parts.push(
+        { text: '[SCENE 1 STYLE ANCHOR — this is the first image from this campaign. Match its lighting quality, color temperature, and overall atmosphere EXACTLY. Only change the environment and composition as described in the prompt.]' },
+        { inlineData: { mimeType, data: buffer.toString('base64') } },
+      );
+    }
+
+    // Summary reinforcement after all images
+    const criticals: string[] = [];
+    if (hasModelRef) criticals.push('CRITICAL: The person must look identical to the MODEL/PERSON reference — same face, same features, same skin tone.');
+    if (hasProductRef) criticals.push('CRITICAL: Products must match the PRODUCT references exactly.');
+    const refSummary = criticals.length > 0 ? criticals.join(' ') + ' ' : '';
+
+    parts.push({ text: refSummary + buildBrandPrompt(scenePrompt, brand, brief, brandContext, sceneIndex, hasAnchor, products) });
 
     const response = await ai.models.generateContent({
       model: MODEL,
       contents: [{ role: 'user', parts }],
       config: {
         responseModalities: ['TEXT', 'IMAGE'],
+        systemInstruction: SYSTEM_INSTRUCTION,
         imageConfig: {
           aspectRatio: FORMAT_ASPECT[format].ratio,
           imageSize: '2K',
@@ -244,6 +294,7 @@ async function generateBrandImageGpt(
   format: ImageFormat,
   outputPath: string,
   brandContext: BrandContext | undefined,
+  products?: string[],
 ): Promise<string | null> {
   const apiKey = process.env['OPENAI_API_KEY'];
   if (!apiKey) {
@@ -260,7 +311,7 @@ async function generateBrandImageGpt(
 
   try {
     const openai = new OpenAI({ apiKey });
-    const prompt = buildBrandPrompt(scenePrompt, brand, brief, brandContext, sceneIndex);
+    const prompt = buildBrandPrompt(scenePrompt, brand, brief, brandContext, sceneIndex, false, products);
     const size = FORMAT_GPT_SIZE[format];
 
     const response = await openai.images.generate({
@@ -303,6 +354,7 @@ export async function generateBrandImages(
 
   const brand = config.brand ?? config.client ?? config.title;
   const brief = config.brief;
+  const products = config.products;
   const formats: ImageFormat[] = config.imageFormats ?? ['story', 'square', 'landscape'];
   const clips = config.clips;
   const multiClip = clips.length > 1;
@@ -312,7 +364,12 @@ export async function generateBrandImages(
     logger.info(`Using ${referenceImagePaths.length} reference image(s): ${referenceImagePaths.map((p) => path.basename(p)).join(', ')}`);
   }
 
+  // Split refs into model/product for QA comparison
+  const modelRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('model'));
+  const productRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('product'));
+
   const brandContext = await loadBrandContext(projectsRoot, projectName);
+  const qaResults: ImageQAResult[] = [];
 
   // Delete targeted files so idempotency check re-generates them
   if (regenerateImages && regenerateImages.length > 0) {
@@ -333,10 +390,17 @@ export async function generateBrandImages(
     `Generating ${clips.length} image(s) × ${formats.length} format(s)...`,
   );
 
+  // Track scene 1's output as a style anchor for subsequent scenes
+  let scene1AnchorPath: string | undefined;
+
   for (let i = 0; i < clips.length; i++) {
     const clip = clips[i];
-    if (!clip?.prompt) continue;
+    if (!clip) continue;
     const clipIndex = i + 1;
+    // Prompt from config, or Director's enrichedPrompt (for shotType-only clips)
+    const enrichedScene = brandContext?.scenes?.find((s) => s.index === clipIndex);
+    const clipPrompt = clip.prompt || enrichedScene?.enrichedPrompt;
+    if (!clipPrompt) continue;
     const clipProvider: ImageProvider = clip.imageProvider ?? config.imageProvider ?? 'gemini';
     const clipFormats = clip.imageFormat ? [clip.imageFormat] : formats;
 
@@ -344,19 +408,36 @@ export async function generateBrandImages(
       const filename = multiClip ? `${clipIndex}-${format}.jpg` : `${format}.jpg`;
       const outputPath = path.join(imagesDir, filename);
 
+      let result: string | null;
       if (clipProvider === 'gpt-image') {
-        await generateBrandImageGpt(
-          clipIndex, clip.prompt, brand, brief, format, outputPath,
-          brandContext,
+        result = await generateBrandImageGpt(
+          clipIndex, clipPrompt, brand, brief, format, outputPath,
+          brandContext, products,
         );
       } else {
-        await generateBrandImage(
-          clipIndex, clip.prompt, brand, brief, format, outputPath,
+        result = await generateBrandImage(
+          clipIndex, clipPrompt, brand, brief, format, outputPath,
           referenceImagePaths, brandContext,
+          clipIndex > 1 ? scene1AnchorPath : undefined, products,
         );
+      }
+
+      // QA evaluation
+      if (result) {
+        const sceneLabel = multiClip ? `${clipIndex}-${format}` : format;
+        const qa = await evaluateImage(result, modelRefPaths, productRefPaths, sceneLabel);
+        if (qa) qaResults.push(qa);
+      }
+
+      // Use scene 1's first format output as the style anchor for all subsequent scenes
+      if (clipIndex === 1 && result && !scene1AnchorPath) {
+        scene1AnchorPath = result;
       }
     }
   }
+
+  // Save QA results
+  await saveQAResults(qaResults, projectsRoot, projectName);
 
   logger.success(`Done! Images saved to: ${path.relative(process.cwd(), imagesDir)}`);
   return imagesDir;

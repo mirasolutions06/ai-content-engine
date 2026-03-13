@@ -6,6 +6,76 @@ import { logger } from '../utils/logger.js';
 import { CostTracker } from '../utils/cost-tracker.js';
 import type { VideoConfig, BrandColors, AssetSourcingResult } from '../types/index.js';
 
+// ── Auto-ref evaluation (Haiku vision) ──────────────────────────────────────
+
+const REF_EVAL_MODEL = 'claude-haiku-4-5-20251001';
+
+/**
+ * Evaluates an auto-generated reference image using Claude Haiku vision.
+ * Checks for collages, quality, and relevance. Returns true if acceptable.
+ */
+async function evaluateAutoRef(
+  imagePath: string,
+  refType: 'style' | 'location',
+  description: string,
+  costTracker: CostTracker,
+): Promise<boolean> {
+  const apiKey = process.env['ANTHROPIC_API_KEY'];
+  if (!apiKey) return true; // no key = skip evaluation, keep the image
+
+  try {
+    const buffer = await fs.readFile(imagePath);
+    const isPng = buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47;
+    const mediaType = isPng ? 'image/png' : 'image/jpeg';
+
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: REF_EVAL_MODEL,
+      max_tokens: 256,
+      system: 'You evaluate AI-generated reference images for quality. Return ONLY a JSON object: { "score": <1-5>, "isCollage": <boolean>, "issues": ["<issue>"] }. Score: 5 = excellent single photo, 3 = acceptable, 1 = unusable. isCollage = true if the image is a grid, mood board, or multiple images composited together.',
+      messages: [{
+        role: 'user',
+        content: [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') },
+          },
+          {
+            type: 'text',
+            text: `Evaluate this auto-generated ${refType} reference image. It should be: "${description}". Is it a single high-quality photograph suitable as a ${refType} reference?`,
+          },
+        ],
+      }],
+    });
+
+    costTracker.logStep('haiku-ref-eval', false);
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : null;
+    if (!text) return true;
+
+    const cleaned = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+    const parsed = JSON.parse(cleaned) as { score: number; isCollage: boolean; issues: string[] };
+
+    if (parsed.isCollage) {
+      logger.warn(`Auto-ref evaluation: ${refType} reference is a collage — deleted. Consider adding your own ${refType}.jpg`);
+      await fs.remove(imagePath);
+      return false;
+    }
+
+    if (parsed.score < 3) {
+      logger.warn(`Auto-ref evaluation: ${refType} reference scored ${parsed.score}/5 — deleted. Issues: ${(parsed.issues ?? []).join('; ')}`);
+      await fs.remove(imagePath);
+      return false;
+    }
+
+    logger.info(`Auto-ref evaluation: ${refType} reference scored ${parsed.score}/5 — accepted.`);
+    return true;
+  } catch (err) {
+    logger.warn(`Auto-ref evaluation failed for ${refType}: ${String(err)} — keeping image.`);
+    return true;
+  }
+}
+
 // ── Brand Colors: Strategy A — Extract from website URL ──────────────────────
 
 async function extractColorsFromWebsite(url: string): Promise<BrandColors | null> {
@@ -440,9 +510,13 @@ export async function sourceAssets(
   }
 
   // ── 2. Style Reference ──────────────────────────────────────────────────────
+  const skipAutoRefs = config.skipAutoRefs ?? [];
   const stylePath = path.join(assetsDir, 'style.png');
 
-  if (await fs.pathExists(stylePath)) {
+  if (skipAutoRefs.includes('style')) {
+    logger.skip('Asset sourcer: style reference skipped via config.skipAutoRefs.');
+    result.styleSource = 'skipped';
+  } else if (await fs.pathExists(stylePath)) {
     logger.skip('Asset sourcer: style.png already exists — skipping.');
     result.styleReferenceSourced = true;
     result.styleSource = 'existing';
@@ -476,15 +550,18 @@ export async function sourceAssets(
       // Fallback: Gemini generation
       if (!sourced) {
         const prompt =
-          'Generate a photography mood board reference image. ' +
+          'Generate a single high-quality professional photograph that establishes the visual style for a photo campaign. ' +
           `Style: ${styleDesc}. ` +
-          'This is a reference for art direction, not final content. ' +
-          'Aesthetic, professional, editorial feel. No text, no logos.';
+          'This should be ONE compelling photograph, NOT a mood board, NOT a collage, NOT multiple images. ' +
+          'Professional editorial photography with natural lighting and authentic textures. No text, no logos.';
 
         sourced = await generateReferenceImage(prompt, stylePath, 'style reference');
         if (sourced) {
           result.styleSource = 'gemini';
           costTracker.logStep('gemini-style-ref', false);
+          // Evaluate quality — delete if collage or low quality
+          const accepted = await evaluateAutoRef(stylePath, 'style', styleDesc, costTracker);
+          if (!accepted) sourced = false;
         }
       }
 
@@ -496,7 +573,10 @@ export async function sourceAssets(
   const locationPath = path.join(assetsDir, 'location.png');
   const locationPathJpg = path.join(assetsDir, 'location.jpg');
 
-  if (await fs.pathExists(locationPath) || await fs.pathExists(locationPathJpg)) {
+  if (skipAutoRefs.includes('location')) {
+    logger.skip('Asset sourcer: location reference skipped via config.skipAutoRefs.');
+    result.locationSource = 'skipped';
+  } else if (await fs.pathExists(locationPath) || await fs.pathExists(locationPathJpg)) {
     logger.skip('Asset sourcer: location reference already exists — skipping.');
     result.locationReferenceSourced = true;
     result.locationSource = 'existing';
@@ -538,6 +618,9 @@ export async function sourceAssets(
         if (sourced) {
           result.locationSource = 'gemini';
           costTracker.logStep('gemini-location-ref', false);
+          // Evaluate quality — delete if collage or low quality
+          const accepted = await evaluateAutoRef(locationPath, 'location', locationDesc, costTracker);
+          if (!accepted) sourced = false;
         }
       }
 
