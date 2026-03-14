@@ -86,7 +86,6 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
   "imageFormats": ["story", "square", "landscape"],
   "imageProvider": "gemini | gpt-image",
   "videoProvider": "kling-v2.1 | kling-v3 | veo-3.1 | veo-3.1-fast",
-  "klingVersion": "v2.1 | v3",
   "colorUnify": false,
   "colorUnifyOpacity": 0.06
 }
@@ -103,7 +102,7 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
 - `videoProvider`: omit for default `"kling-v2.1"`. Options: `"kling-v3"` (better motion, ~2.3x more), `"veo-3.1"` (Google, longer clips 4-8s), `"veo-3.1-fast"` (cheaper Veo).
 - `outputType` per clip: omit for default based on mode (`"video"` for video mode, `"image"` for brand-images). Set to `"image"` for stills, `"animation"` for short subtle motion (clamped to 5s max).
 - `duration` per clip: omit for default `5`. Any number 1-15. Veo maps to 4/6/8s; Kling to 5/10s.
-- `klingVersion`: omit for default `"v2.1"` (cheaper, ~$0.49/5s clip). Set to `"v3"` for higher quality with multi-shot storyboards (~$1.12/5s clip, ~2.3x more expensive). v3 produces smoother transitions and better motion quality. Prefer `videoProvider` over this field.
+- `videoProvider` for Kling: use `"kling-v3"` for beauty/portrait/product content (smoother motion, ~$1.12/5s). Use `"kling-v2.1"` for simpler scenes (~$0.49/5s). v3 is worth the 2.3x premium for anything involving faces or close-ups.
 - `colorUnify`: omit for default `false`. Set to `true` to apply a subtle brand-colored overlay on clips to unify color temperature across different Kling-generated scenes.
 - `colorUnifyOpacity`: omit for default `0.06` (6%). Adjust 0-1 if color unity overlay is too strong or subtle.
 
@@ -176,6 +175,17 @@ This mirrors how professional product shoots work: same subject, same set, same 
 6. **Repeat the background**: Mention the SAME surface/environment in every prompt (e.g. "on white marble surface" in all 4 scenes).
 7. **Vary only the camera**: Each scene should differ only in camera distance (extreme close-up, close-up, medium, wide, detail).
 8. **Typical clip count**: 3-5 clips is standard. Each 5s clip costs ~$1.05 (storyboard + Kling). Warn if proposing >6 clips.
+
+### Video-Specific Prompt Tips (Kling i2v)
+
+When generating config for video mode, prompts are used both for storyboard image generation AND as guidance for Kling's image-to-video animation. Write prompts that work for both:
+
+- **Describe a single frozen moment, not motion**: Kling adds the motion. "Woman holding amber serum bottle" not "Woman picks up serum bottle."
+- **Include environment/lighting**: Kling uses this context to animate consistently. "Soft morning light through frosted window, marble bathroom" helps it maintain the scene.
+- **Keep scenes compositionally independent**: Each clip generates from its own storyboard frame. Don't write scene 2 as a continuation of scene 1 — write each as a standalone moment.
+- **Avoid complex multi-person scenes**: Kling handles single-subject best. Two people = more artifacts.
+- **For beauty/portrait content**: Use `videoProvider: "kling-v3"` and provide `model-1.jpg` reference. The Director sends model photos to Claude for better camera direction.
+- **Provide reference images**: `model-1.jpg`, `product-1.jpg` etc. in the project root are the single biggest quality lever for video output.
 
 ### Step 5: Validate Before Saving
 

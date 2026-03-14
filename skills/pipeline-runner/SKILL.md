@@ -250,7 +250,7 @@ No storyboard preview needed — brand images are cheap (~$0.05 each) and fast. 
 If every clip has `"outputType": "image"`, no video generation runs. Storyboard frames ARE the output — copied to `output/images/`. Skip storyboard review gate (images are cheap, ~$0.04-0.08 each). Remotion is skipped entirely.
 
 ### video mode — with video/animation clips
-Full workflow: dry-run → storyboard → approve → full generation. Video clips generate sequentially to preserve tail-frame conditioning for smooth transitions. Animation clips auto-clamp to max 5s with minimal motion prompts.
+Full workflow: dry-run → storyboard → approve → full generation. Video clips generate sequentially. Each clip is independent (no cross-scene end-frame conditioning — this caused morphing between different shot types). Animation clips auto-clamp to max 5s with minimal motion prompts.
 
 ### video mode — mixed (some images, some videos)
 Dry-run shows which clips are images vs videos. Image clips are resolved in Phase 1 (storyboard). Only video/animation clips go through Phase 2 (video gen). Cost breakdown reflects the mix.
@@ -328,6 +328,33 @@ Then re-run. The Director will also regenerate `cache/brand-context.json`.
 | Brand colors | `assets/brand/brand.json` | `--json-output` | ~$0.01-0.02 |
 | Style reference | `assets/reference/style.png` or `.jpg` | `--json-output` | ~$0.05 |
 | Everything | `cache/` and `output/` directories | `--json-output` | Full cost |
+
+## Kling Video Quality — What Works and What Doesn't
+
+### What works well
+- **Storyboard-driven i2v (image-to-video)**: Providing a high-quality storyboard frame as `start_image_url` produces significantly better results than text-to-video. The frame anchors the scene.
+- **cfg_scale 0.7**: Keeps the output close to the source image while allowing natural motion (breathing, steam, hair). Lower values (0.5) let the image drift too far.
+- **Scene description + camera move prompts**: Prompts like `"Woman holding amber serum bottle in marble bathroom. Slow gentle push-in. Photorealistic, cinematic, smooth subtle motion."` work well. The scene description gives Kling context; the camera move gives it direction.
+- **Enhanced negative prompt**: Adding `face distortion, changing face, melting skin, deformed face, changing hair, identity shift` significantly reduces portrait artifacts.
+- **Reference images for the Director**: Model and product photos sent to the Director (Claude) result in better enriched prompts and camera moves, which flow through to better Kling output.
+- **Independent clips**: Each clip generates independently from its own storyboard frame. No cross-scene end-frame conditioning — this prevents morphing artifacts when shot types differ (e.g. medium → close-up).
+
+### What doesn't work / known limitations
+- **Cross-scene end_image_url**: Passing scene 1's last frame as scene 2's end image forces Kling to morph between compositions. Disabled — produces terrible results when shot types differ.
+- **Motion-only prompts for i2v**: Prompts like just `"Slow push-in. Smooth subtle motion."` without scene context produce generic results. Kling needs to know WHAT it's animating.
+- **Text/logo rendering**: Kling cannot render readable text. Never include text in prompts. Use Remotion overlays for text.
+- **Complex multi-subject scenes**: Scenes with multiple people or fast action produce more artifacts. Keep scenes simple — one subject, one action.
+- **Face consistency across clips**: Different storyboard frames may produce slightly different faces. This is a fundamental limitation of the current pipeline — each clip is independently generated.
+- **cfg_scale too high (>0.8)**: Produces nearly static video with barely any motion. 0.7 is the sweet spot.
+- **v2.1 vs v3 quality**: v3 produces noticeably smoother motion but costs ~2.3x more. For beauty/product content, v3 is worth the premium. For simple scenes, v2.1 is adequate.
+
+### Quality checklist before running Kling
+1. Storyboard frames look correct (right composition, right subject, right lighting)
+2. Reference images provided: `model-1.jpg`, `product-1.jpg` etc. in project root
+3. `videoProvider: "kling-v3"` set in config (recommended for beauty/portrait content)
+4. `skipAutoRefs` set if you don't want auto-sourced style/location refs polluting the scene
+5. Prompts describe a single clear moment with lighting and mood cues
+6. No text/logo requests in prompts
 
 ## Re-running Full Projects
 
