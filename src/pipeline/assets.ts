@@ -56,8 +56,8 @@ export class AssetLoader {
       this.loadOptionalMulti(['brand/font-regular.ttf', 'assets/brand/font-regular.ttf'], 'regular font'),
       this.loadBrandColors(),
       this.loadOptionalMulti(['style.jpg', 'style.png', 'assets/reference/style.jpg', 'assets/reference/style.png'], 'style reference'),
-      this.loadOptionalMulti(['product.jpg', 'product.png', 'assets/reference/subject.jpg', 'assets/reference/subject.png'], 'subject reference'),
-      this.loadOptionalMulti(['model.jpg', 'model.png'], 'model reference'),
+      this.loadOptionalMulti(['product.jpg', 'product-1.jpg', 'product.png', 'product-1.png', 'assets/reference/subject.jpg', 'assets/reference/subject.png'], 'subject reference'),
+      this.loadOptionalMulti(['model.jpg', 'model-1.jpg', 'model.png', 'model-1.png'], 'model reference'),
       this.loadOptionalMulti(['location.jpg', 'location.png', 'assets/reference/location.jpg', 'assets/reference/location.png'], 'location reference'),
       this.loadOptionalMulti(['music.mp3', 'assets/audio/music.mp3'], 'background music'),
     ]);

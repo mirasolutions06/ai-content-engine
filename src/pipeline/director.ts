@@ -567,6 +567,7 @@ export async function runDirector(
   const referenceImages: Array<{ path: string; label: string }> = [
     { path: assets.styleReference ?? '', label: 'STYLE REFERENCE' },
     { path: assets.subjectReference ?? '', label: 'SUBJECT REFERENCE' },
+    { path: assets.modelReference ?? '', label: 'MODEL REFERENCE' },
     { path: assets.locationReference ?? '', label: 'LOCATION REFERENCE' },
   ];
 

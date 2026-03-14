@@ -489,14 +489,10 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
   if (runOpts?.storyboardOnly !== true && !dryRun) {
     const videoPlans = clipPlans.filter((p) => p.outputType === 'video' || p.outputType === 'animation');
 
-    // Sequential generation preserves tail-frame conditioning for smooth transitions
-    let videoPreviousLastFrame: string | undefined = undefined;
-
     for (const plan of videoPlans) {
       // Skip scenes rejected in Airtable review
       if (rejectedScenes.has(plan.sceneIndex)) {
         logger.skip(`Scene ${plan.sceneIndex} was rejected in review — skipping video generation.`);
-        videoPreviousLastFrame = undefined;
         continue;
       }
 
@@ -524,8 +520,8 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
         const move = plan.enrichedClipPlan?.cameraMove ?? 'slow drift';
         videoPrompt = `Subtle gentle motion. ${move}.`;
       } else if (imageRef !== undefined && plan.enrichedClipPlan?.cameraMove) {
-        // Image-to-video: motion-only prompt
-        videoPrompt = `${plan.enrichedClipPlan.cameraMove}. Smooth subtle motion, photorealistic, cinematic.`;
+        // Image-to-video: scene context + motion direction
+        videoPrompt = `${plan.prompt}. ${plan.enrichedClipPlan.cameraMove}. Photorealistic, cinematic, smooth subtle motion.`;
       } else {
         // Text-to-video fallback: full scene description
         videoPrompt = plan.enrichedClipPlan?.continuityNote
@@ -538,7 +534,8 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
       if (videoProvider === 'veo-3.1' || videoProvider === 'veo-3.1-fast') {
         clipPath = await generateVeoClip(videoPrompt, options, PROJECTS_ROOT, imageRef, videoProvider);
       } else {
-        clipPath = await generateFalClip(videoPrompt, options, PROJECTS_ROOT, imageRef, videoPreviousLastFrame, config.klingVersion);
+        const resolvedKlingVersion: import('../types/index.js').KlingVersion = videoProvider === 'kling-v3' ? 'v3' : 'v2.1';
+        clipPath = await generateFalClip(videoPrompt, options, PROJECTS_ROOT, imageRef, undefined, resolvedKlingVersion);
       }
       clipPaths.push(clipPath);
       resultAssets.clips.push(clipPath);
@@ -547,13 +544,6 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
       const { key } = getVideoCostKey(videoProvider, clipDuration);
       costTracker.logStep(key, false);
 
-      // Capture last frame for next scene's tail-frame conditioning
-      const lastFramePath = path.join(
-        PROJECTS_ROOT, projectName, 'storyboard', `scene-${plan.sceneIndex}-lastframe.png`,
-      );
-      if (await fs.pathExists(lastFramePath)) {
-        videoPreviousLastFrame = lastFramePath;
-      }
     }
   }
 
