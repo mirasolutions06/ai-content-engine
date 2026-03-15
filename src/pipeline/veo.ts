@@ -112,7 +112,6 @@ export async function generateVeoClip(
       aspectRatio: veoAspectRatio,
       durationSeconds: veoDuration,
       numberOfVideos: 1,
-      generateAudio: false,
     },
   };
 
@@ -127,11 +126,12 @@ export async function generateVeoClip(
     };
   }
 
-  // Start generation
+  // Start generation — with automatic text-to-video fallback if safety-filtered
   let operation = await ai.models.generateVideos(params);
+  let usedFallback = false;
 
   // Poll for completion
-  const startTime = Date.now();
+  let startTime = Date.now();
   while (!operation.done) {
     if (Date.now() - startTime > POLL_TIMEOUT_MS) {
       throw new Error(`Veo generation timed out after ${POLL_TIMEOUT_MS / 60000} minutes`);
@@ -149,13 +149,48 @@ export async function generateVeoClip(
     throw new Error(`Veo generation failed: ${JSON.stringify(operation.error)}`);
   }
 
-  const generatedVideos = operation.response?.generatedVideos;
+  let generatedVideos = operation.response?.generatedVideos;
+
+  // If safety-filtered in i2v mode, retry as text-to-video.
+  // Veo's Gemini API blocks i2v when the input image contains people
+  // (personGeneration control is Vertex AI-only). Text-to-video with
+  // the same prompt works fine for people.
+  if ((!generatedVideos || generatedVideos.length === 0) && params.image) {
+    const filtered = operation.response?.raiMediaFilteredCount;
+    if (filtered) {
+      logger.warn(`  Scene ${sceneIndex}: Veo safety-filtered i2v (image contains people). Retrying as text-to-video...`);
+      delete params.image;
+      usedFallback = true;
+      operation = await ai.models.generateVideos(params);
+
+      startTime = Date.now();
+      while (!operation.done) {
+        if (Date.now() - startTime > POLL_TIMEOUT_MS) {
+          throw new Error(`Veo generation timed out after ${POLL_TIMEOUT_MS / 60000} minutes`);
+        }
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        logger.info(`  Scene ${sceneIndex}: generating with Veo t2v fallback... (${elapsed}s elapsed)`);
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        operation = await ai.operations.getVideosOperation({ operation });
+      }
+
+      if (operation.error) {
+        throw new Error(`Veo t2v fallback failed: ${JSON.stringify(operation.error)}`);
+      }
+      generatedVideos = operation.response?.generatedVideos;
+    }
+  }
+
   if (!generatedVideos || generatedVideos.length === 0) {
     const filtered = operation.response?.raiMediaFilteredCount;
     if (filtered) {
       throw new Error(`Veo: ${filtered} video(s) filtered by safety. Try a different prompt.`);
     }
     throw new Error('Veo returned no generated videos');
+  }
+
+  if (usedFallback) {
+    logger.warn(`  Scene ${sceneIndex}: used text-to-video fallback — video may not match storyboard frame exactly.`);
   }
 
   // Download the result
