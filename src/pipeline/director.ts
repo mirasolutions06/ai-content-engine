@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs-extra';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../utils/logger.js';
+import { loadBrandMemory, getDirectorContext } from '../utils/brand-memory.js';
+import { loadSkillMemory, getSkillDirectorContext } from '../utils/skill-memory.js';
 import type {
   VideoConfig,
   VideoAnalysis,
@@ -578,6 +580,25 @@ export async function runDirector(
     (contentParts as Anthropic.ContentBlockParam[]).push(
       { type: 'text', text: `[${ref.label}]` },
       encoded,
+    );
+  }
+
+  // ── Inject brand memory + skill memory context ────────────────────────────────
+  const brandName = config.brand ?? config.client ?? config.title;
+  if (brandName) {
+    const brandMemory = await loadBrandMemory(brandName);
+    if (brandMemory && brandMemory.insights.runCount > 0) {
+      (contentParts as Anthropic.ContentBlockParam[]).push(
+        { type: 'text', text: getDirectorContext(brandMemory) },
+      );
+      logger.info(`Director: loaded brand memory for "${brandName}" (${brandMemory.insights.runCount} runs, avg ${brandMemory.insights.avgScore}/5)`);
+    }
+  }
+
+  const skillMemory = await loadSkillMemory();
+  if (skillMemory && skillMemory.totalRuns > 0) {
+    (contentParts as Anthropic.ContentBlockParam[]).push(
+      { type: 'text', text: getSkillDirectorContext(skillMemory) },
     );
   }
 

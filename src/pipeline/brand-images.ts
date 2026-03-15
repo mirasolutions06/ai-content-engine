@@ -4,6 +4,11 @@ import path from 'path';
 import fs from 'fs-extra';
 import { logger } from '../utils/logger.js';
 import { evaluateImage, saveQAResults } from '../utils/image-qa.js';
+import { editImage, resolveSourceImage } from './image-editor.js';
+import { compositeOverlay } from './image-compositor.js';
+import { recordBrandRun } from '../utils/brand-memory.js';
+import { recordSkillRun } from '../utils/skill-memory.js';
+import { AssetManifest } from '../utils/asset-manifest.js';
 import { FORMAT_ASPECT } from '../types/index.js';
 import type { VideoConfig, ImageFormat, ImageProvider, BrandContext, ImageQAResult } from '../types/index.js';
 
@@ -412,7 +417,27 @@ export async function generateBrandImages(
       const outputPath = path.join(imagesDir, filename);
 
       let result: string | null;
-      if (clipProvider === 'gpt-image') {
+      const imageSource = clip.imageSource ?? 'generate';
+
+      if (imageSource === 'original' && clip.sourceImage) {
+        // Use existing image as-is — copy to output
+        const resolvedSource = resolveSourceImage(clip.sourceImage, path.join(projectsRoot, projectName));
+        if (await fs.pathExists(resolvedSource)) {
+          if (!(await fs.pathExists(outputPath))) {
+            await fs.ensureDir(path.dirname(outputPath));
+            await fs.copy(resolvedSource, outputPath);
+          }
+          logger.success(`Using original: ${path.basename(outputPath)}`);
+          result = outputPath;
+        } else {
+          logger.warn(`Source image not found: ${resolvedSource}`);
+          result = null;
+        }
+      } else if (imageSource === 'edit' && clip.sourceImage && clip.editPrompt) {
+        // AI-edit existing image
+        const resolvedSource = resolveSourceImage(clip.sourceImage, path.join(projectsRoot, projectName));
+        result = await editImage(resolvedSource, clip.editPrompt, outputPath, clipProvider, format);
+      } else if (clipProvider === 'gpt-image') {
         result = await generateBrandImageGpt(
           clipIndex, clipPrompt, brand, brief, format, outputPath,
           brandContext, products,
@@ -423,6 +448,13 @@ export async function generateBrandImages(
           referenceImagePaths, brandContext,
           clipIndex > 1 ? scene1AnchorPath : undefined, products,
         );
+      }
+
+      // Apply text overlay if configured
+      if (result && clip.overlay) {
+        const fontPath = path.join(projectsRoot, projectName, 'brand', 'font-bold.ttf');
+        const font = (await fs.pathExists(fontPath)) ? fontPath : undefined;
+        await compositeOverlay(result, clip.overlay, result, font);
       }
 
       // QA evaluation
@@ -441,6 +473,44 @@ export async function generateBrandImages(
 
   // Save QA results
   await saveQAResults(qaResults, projectsRoot, projectName);
+
+  // ── Record brand + skill memory ──────────────────────────────────────────
+  const imgProvider: ImageProvider = config.imageProvider ?? 'gemini';
+  if (brand && qaResults.length > 0) {
+    const qaForMemory = qaResults.map((r) => {
+      const entry: { scene: string; score: number; prompt?: string; format?: string } = {
+        scene: r.scene,
+        score: r.score,
+      };
+      // scene label is "clipIndex-format" or just "format"
+      const parts = r.scene.split('-');
+      const clipIdx = multiClip ? parseInt(parts[0] ?? '1', 10) : 1;
+      const matchedClip = clips[clipIdx - 1];
+      if (matchedClip?.prompt) entry.prompt = matchedClip.prompt;
+      if (parts.length > 1) entry.format = parts.slice(multiClip ? 1 : 0).join('-');
+      return entry;
+    });
+    await recordBrandRun(brand, projectName, 'brand-images', imgProvider, qaForMemory);
+    await recordSkillRun(imgProvider, qaForMemory);
+  }
+
+  // ── Save asset manifest ────────────────────────────────────────────────────
+  const manifest = new AssetManifest(projectsRoot, projectName);
+  for (const qa of qaResults) {
+    const imgPath = path.join(imagesDir, `${qa.scene}.jpg`);
+    if (await fs.pathExists(imgPath)) {
+      const fmt = qa.scene.includes('-') ? (qa.scene.split('-').pop() ?? qa.scene) : qa.scene;
+      manifest.record({
+        path: imgPath,
+        type: 'image',
+        provider: imgProvider,
+        model: imgProvider === 'gpt-image' ? 'gpt-image-1' : 'gemini-3-pro-image-preview',
+        qaScore: qa.score,
+        format: fmt,
+      });
+    }
+  }
+  await manifest.save();
 
   logger.success(`Done! Images saved to: ${path.relative(process.cwd(), imagesDir)}`);
   return imagesDir;

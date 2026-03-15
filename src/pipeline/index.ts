@@ -10,20 +10,30 @@ import { CostTracker } from '../utils/cost-tracker.js';
 import { AssetLoader } from './assets.js';
 import { generateVoiceover } from './elevenlabs.js';
 import { transcribeAudio } from './whisper.js';
-import { generateFalClip } from './fal.js';
+import { generateFalClip, generateV3MultiShot } from './fal.js';
+import type { MultiShotPrompt } from './fal.js';
 import { generateVeoClip } from './veo.js';
 import { packageFinalVideo } from './export.js';
 import { AirtableLogger, AirtableReviewer } from './airtable.js';
 import { runDirector } from './director.js';
 import { generateImage } from './image-router.js';
+import { editImage, resolveSourceImage } from './image-editor.js';
+import { compositeOverlay } from './image-compositor.js';
 import { analyzeReferenceVideos } from './video-analyzer.js';
 import { getFormatMeta } from '../remotion/helpers/timing.js';
 import { generateBrandImages } from './brand-images.js';
+import { evaluateImage, saveQAResults } from '../utils/image-qa.js';
+import { parallelWithLimit } from '../utils/concurrency.js';
 import { sourceAssets } from './asset-sourcer.js';
+import { diffConfig, saveConfigSnapshot } from '../utils/config-diff.js';
+import { recordBrandRun } from '../utils/brand-memory.js';
+import { recordSkillRun } from '../utils/skill-memory.js';
+import { loadCheckpoint, saveCheckpoint, clearCheckpoint, createCheckpoint, type PipelineCheckpoint } from '../utils/checkpoint.js';
+import { AssetManifest } from '../utils/asset-manifest.js';
 import type {
   VideoConfig, VideoProvider, ImageProvider, ClipOutputType,
   VideoGenOptions, CaptionWord, RunOptions, PipelineResult, PipelineMode,
-  DirectorClipPlan, VideoClip,
+  DirectorClipPlan, VideoClip, ImageQAResult, KlingVersion,
 } from '../types/index.js';
 
 /** Resolve the effective video provider from config, with backward compat for klingVersion. */
@@ -52,6 +62,68 @@ interface ClipPlan {
   enrichedClipPlan?: DirectorClipPlan | undefined;
   clip: VideoClip;
   prompt: string;
+}
+
+/** Build a video prompt tailored to the target video provider. */
+function buildVideoPrompt(
+  plan: ClipPlan,
+  provider: VideoProvider,
+  imageRef: string | undefined,
+): string {
+  if (plan.outputType === 'animation') {
+    const move = plan.enrichedClipPlan?.cameraMove ?? 'slow drift';
+    return `Subtle gentle motion. ${move}.`;
+  }
+
+  const hasImage = imageRef !== undefined;
+  const cameraMove = plan.enrichedClipPlan?.cameraMove;
+  const continuityNote = plan.enrichedClipPlan?.continuityNote;
+  const lighting = plan.enrichedClipPlan?.lighting;
+  const colorGrade = plan.enrichedClipPlan?.colorGrade;
+
+  switch (provider) {
+    case 'kling-v2.1':
+      // Kling v2.1 works best with short, direct motion prompts
+      if (hasImage && cameraMove) {
+        return `${cameraMove}. Smooth cinematic motion.`;
+      }
+      return plan.prompt;
+
+    case 'kling-v3':
+      // Kling v3 handles more scene context + motion detail
+      if (hasImage && cameraMove) {
+        return `${plan.prompt}. ${cameraMove}. Photorealistic, cinematic.`;
+      }
+      return continuityNote
+        ? `${plan.prompt}. ${continuityNote}`
+        : plan.prompt;
+
+    case 'veo-3.1':
+    case 'veo-3.1-fast': {
+      // Veo thrives on rich atmospheric descriptions + camera language
+      const parts = [plan.prompt];
+      if (cameraMove) parts.push(cameraMove);
+      if (lighting) parts.push(lighting);
+      if (colorGrade) parts.push(colorGrade);
+      parts.push('Cinematic, atmospheric, professional film quality.');
+      return parts.join('. ');
+    }
+
+    default:
+      if (hasImage && cameraMove) {
+        return `${plan.prompt}. ${cameraMove}. Photorealistic, cinematic, smooth subtle motion.`;
+      }
+      return continuityNote
+        ? `${plan.prompt}. ${continuityNote}`
+        : plan.prompt;
+  }
+}
+
+/** Map clip duration to Kling v3 multi-shot duration values. */
+function toMultiShotDuration(seconds: number): '3' | '5' | '10' {
+  if (seconds <= 3) return '3';
+  if (seconds <= 7) return '5';
+  return '10';
 }
 
 /** Default variation angles when Director didn't provide them. */
@@ -111,11 +183,36 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
   validateConfig(config);
 
   const mode = config.mode ?? 'video';
+  const isDraft = runOpts?.draft === true;
   const costTracker = new CostTracker(projectName, PROJECTS_ROOT);
+
+  if (isDraft) {
+    logger.info('[DRAFT] Cheap preview mode — Kling v2.1, skip voiceover & Remotion.');
+  }
   const resultAssets: PipelineResult['assets'] = { images: [], clips: [] };
 
   // ── Prompt validation ─────────────────────────────────────────────────
   validatePrompts(config);
+
+  // ── Config diff (show what changed since last run) ────────────────────
+  const configDiff = await diffConfig(config, PROJECTS_ROOT, projectName);
+  if (!configDiff.isFirstRun && configDiff.changedClips.length > 0) {
+    const changed = configDiff.changedClips.join(', ');
+    const unchanged = configDiff.unchangedClips.join(', ') || 'none';
+    logger.info(`Config diff: clips ${changed} changed. Clips ${unchanged} unchanged (cached).`);
+  }
+
+  // ── Checkpoint loading (resume from previous partial run) ──────────────
+  let checkpoint: PipelineCheckpoint | null = null;
+  if (runOpts?.resume === true && !dryRun) {
+    checkpoint = await loadCheckpoint(config, PROJECTS_ROOT, projectName);
+  }
+  if (!checkpoint) {
+    checkpoint = createCheckpoint(config);
+  }
+
+  // ── Asset manifest (track provenance of every generated asset) ────────
+  const manifest = new AssetManifest(PROJECTS_ROOT, projectName);
 
   // ── Asset sourcing (before Director so auto-sourced files are available) ──
   await sourceAssets(projectName, config, projectDir, costTracker, dryRun);
@@ -267,12 +364,15 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
     logger.info(`Director: applying suggested captionTheme: "${directorPlan.suggestedCaptionTheme}"`);
   }
 
-  // ── Step 1: Generate voiceover ──────────────────────────────────────────
-  // Director enriches the script with SSML pause tags and sets optimal voice settings.
-  // Note: generateVoiceover skips if voiceover.mp3 already exists — delete it to regenerate
-  // with Director enrichment if you previously ran without the Director.
+  // ── Steps 1-2: Voiceover + Whisper ──────────────────────────────────────
+  // In non-dry-run mode, voiceover and whisper run concurrently with Phase 1
+  // storyboard generation for faster pipeline completion.
   let voiceoverPath: string | undefined;
-  if (config.script && config.script.trim().length > 0 && config.voiceId) {
+  let captions: CaptionWord[] = [];
+  const shouldCaption = config.captions ?? formatMeta.defaultCaptions;
+  let voiceoverFlow: Promise<void> | null = null;
+
+  if (config.script && config.script.trim().length > 0 && config.voiceId && !isDraft) {
     if (dryRun) {
       const script = directorPlan?.voice.enrichedScript ?? config.script;
       logger.info(`[DRY RUN] Would generate voiceover: voice=${config.voiceId}, script="${script.slice(0, 80)}..."`);
@@ -288,31 +388,33 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
           }
         : { voiceId: config.voiceId };
 
-      voiceoverPath = await generateVoiceover(script, voiceOptions, PROJECTS_ROOT, projectName);
-      resultAssets.voiceover = voiceoverPath;
+      // Start voiceover + whisper as background flow (runs concurrently with storyboard)
+      voiceoverFlow = (async () => {
+        voiceoverPath = await generateVoiceover(script, voiceOptions, PROJECTS_ROOT, projectName);
+        resultAssets.voiceover = voiceoverPath;
+        costTracker.logStep('elevenlabs', false);
+
+        if (shouldCaption && voiceoverPath !== undefined) {
+          const whisperResult = await transcribeAudio(voiceoverPath, PROJECTS_ROOT, projectName);
+          captions = whisperResult.words;
+          costTracker.logStep('whisper', false);
+        }
+      })();
     }
   } else {
     logger.skip('No script or voiceId in config — skipping voiceover generation.');
   }
 
-  // ── Step 2: Transcribe voiceover ────────────────────────────────────────
-  let captions: CaptionWord[] = [];
-  const shouldCaption = config.captions ?? formatMeta.defaultCaptions;
-
-  if (shouldCaption && voiceoverPath !== undefined && !dryRun) {
-    const whisperResult = await transcribeAudio(voiceoverPath, PROJECTS_ROOT, projectName);
-    captions = whisperResult.words;
-    costTracker.logStep('whisper', false);
-  } else if (dryRun && shouldCaption && config.script && config.voiceId) {
+  if (dryRun && shouldCaption && config.script && config.voiceId) {
     logger.info('[DRY RUN] Would transcribe voiceover with Whisper');
     costTracker.logStep('whisper', false);
-  } else if (shouldCaption) {
+  } else if (shouldCaption && !(config.script && config.voiceId)) {
     logger.skip('Captions enabled but no voiceover — captions will be empty.');
   }
 
   // ── Helper: resolve video cost key for logging ─────────────────────────
   const imgProvider = resolveImageProvider(config);
-  const videoProvider = resolveVideoProvider(config);
+  const videoProvider: VideoProvider = isDraft ? 'kling-v2.1' : resolveVideoProvider(config);
 
   function getVideoCostKey(provider: VideoProvider, durationSec: number): { key: string; label: string } {
     const dur = durationSec > 5;
@@ -336,9 +438,16 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
   const clipPlans: ClipPlan[] = [];
   const clipPaths: string[] = [];
   const imageOutputPaths: string[] = [];
+  const qaResults: ImageQAResult[] = [];
   let previousLastFramePath: string | undefined = undefined;
   let scene1AnchorPath: string | undefined = undefined;
   const rejectedScenes = new Set<number>();
+
+  // Collect reference paths for QA evaluation
+  const modelRefPaths: string[] = [];
+  const productRefPaths: string[] = [];
+  if (assets.modelReference) modelRefPaths.push(assets.modelReference);
+  if (assets.subjectReference) productRefPaths.push(assets.subjectReference);
 
   for (let i = 0; i < config.clips.length; i++) {
     const clip = config.clips[i];
@@ -347,6 +456,23 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
     const outputType = resolveClipOutputType(clip, mode);
     const enrichedClipPlan = directorPlan?.clips.find((c) => c.sceneIndex === i + 1);
     const prompt = enrichedClipPlan?.enrichedPrompt ?? clip.prompt ?? '';
+
+    // ── Checkpoint resume: skip frames already completed ──
+    const checkpointFrame = checkpoint.completedFrames[i + 1];
+    if (checkpointFrame && (await fs.pathExists(checkpointFrame))) {
+      logger.skip(`Scene ${i + 1}: resuming from checkpoint.`);
+      clipPlans.push({ sceneIndex: i + 1, outputType, generatedFrame: checkpointFrame, enrichedClipPlan, clip, prompt });
+      if (i === 0) scene1AnchorPath = checkpointFrame;
+      if (outputType === 'image') {
+        const imagesDir = path.join(PROJECTS_ROOT, projectName, 'output', 'images');
+        const destPath = path.join(imagesDir, `scene-${i + 1}${path.extname(checkpointFrame)}`);
+        if (await fs.pathExists(destPath)) {
+          imageOutputPaths.push(destPath);
+          resultAssets.images.push(destPath);
+        }
+      }
+      continue;
+    }
 
     // Use pre-generated clip URL if provided — download and skip generation
     if (clip.url !== undefined) {
@@ -389,7 +515,40 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
     // ── Generate storyboard frame(s) via image router ──
     const variationCount = Math.min(Math.max(runOpts?.variations ?? 1, 1), 4);
     let generatedFrame: string | null = null;
+    const imageSource = clip.imageSource ?? 'generate';
 
+    // ── Original mode: use existing image as-is ──
+    if (imageSource === 'original' && clip.sourceImage) {
+      const resolvedSource = resolveSourceImage(clip.sourceImage, projectDir);
+      if (await fs.pathExists(resolvedSource)) {
+        const storyboardDir = path.join(PROJECTS_ROOT, projectName, 'storyboard');
+        await fs.ensureDir(storyboardDir);
+        const ext = path.extname(resolvedSource);
+        generatedFrame = path.join(storyboardDir, `scene-${i + 1}${ext}`);
+        if (!(await fs.pathExists(generatedFrame))) {
+          await fs.copy(resolvedSource, generatedFrame);
+        }
+        logger.success(`Scene ${i + 1}: using original — ${path.basename(resolvedSource)}`);
+      } else {
+        logger.warn(`Source image not found: ${resolvedSource}`);
+      }
+    }
+
+    // ── Edit mode: AI-edit existing image ──
+    if (imageSource === 'edit' && clip.sourceImage && clip.editPrompt && generatedFrame === null) {
+      const resolvedSource = resolveSourceImage(clip.sourceImage, projectDir);
+      const storyboardDir = path.join(PROJECTS_ROOT, projectName, 'storyboard');
+      await fs.ensureDir(storyboardDir);
+      const dest = path.join(storyboardDir, `scene-${i + 1}.jpg`);
+      const provider = clip.imageProvider ?? imgProvider;
+      generatedFrame = await editImage(resolvedSource, clip.editPrompt, dest, provider);
+      if (generatedFrame !== null) {
+        costTracker.logStep(frameCostKey, false);
+      }
+    }
+
+    // ── Generate mode (default): AI creates from prompt ──
+    if (generatedFrame === null) {
     for (let v = 1; v <= variationCount; v++) {
       const variationAngle = v > 1
         ? (enrichedClipPlan?.variationAngles?.[v - 2] ?? FALLBACK_VARIATION_ANGLES[v - 2])
@@ -423,6 +582,64 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
       }
     }
 
+    // ── QA evaluation + retry loop ──
+    if (generatedFrame !== null && !dryRun) {
+      const qaResult = await evaluateImage(generatedFrame, modelRefPaths, productRefPaths, `scene-${i + 1}`);
+      if (qaResult) {
+        qaResults.push(qaResult);
+        costTracker.logStep('haiku-image-qa', false);
+
+        // Retry if QA score is below threshold (only in full pipeline, not storyboard-only)
+        if (!qaResult.pass && qaResult.score < 3.5 && runOpts?.storyboardOnly !== true) {
+          let bestScore = qaResult.score;
+          let bestQA = qaResult;
+
+          for (let retry = 1; retry <= 2; retry++) {
+            const issues = bestQA.issues.slice(0, 3).join(', ') || 'improve overall quality';
+            logger.info(`  QA retry ${retry}/2 for scene ${i + 1} (score: ${bestScore.toFixed(1)}/5, fixing: ${issues})...`);
+
+            const retryFrame = await generateImage(imgProvider, {
+              sceneIndex: i + 1,
+              prompt: `${prompt}. Avoid these issues: ${issues}.`,
+              format,
+              ...(directorPlan?.visualStyleSummary !== undefined && { visualStyleSummary: directorPlan.visualStyleSummary }),
+              ...(directorPlan?.lightingSetup !== undefined && { lightingSetup: directorPlan.lightingSetup }),
+              ...(directorPlan?.backgroundDescription !== undefined && { backgroundDescription: directorPlan.backgroundDescription }),
+              ...(directorPlan?.colorPalette !== undefined && { colorPalette: directorPlan.colorPalette }),
+              ...(enrichedClipPlan?.lighting !== undefined && { lighting: enrichedClipPlan.lighting }),
+              ...(enrichedClipPlan?.colorGrade !== undefined && { colorGrade: enrichedClipPlan.colorGrade }),
+              ...(enrichedClipPlan?.cameraMove !== undefined && { cameraMove: enrichedClipPlan.cameraMove }),
+              ...(previousLastFramePath !== undefined && { previousLastFramePath }),
+              ...(assets.subjectReference !== undefined && { subjectReferencePath: assets.subjectReference }),
+              ...(scene1AnchorPath !== undefined && { scene1AnchorPath }),
+              variationIndex: variationCount + retry,
+              variationAngle: `QA fix: ${issues}`,
+              projectsRoot: PROJECTS_ROOT,
+              projectName,
+            });
+
+            if (retryFrame) {
+              costTracker.logStep(frameCostKey, false);
+              const retryQA = await evaluateImage(retryFrame, modelRefPaths, productRefPaths, `scene-${i + 1}-retry${retry}`);
+              if (retryQA) {
+                costTracker.logStep('haiku-image-qa', false);
+                qaResults.push(retryQA);
+
+                if (retryQA.score > bestScore) {
+                  logger.info(`  QA: retry ${retry} improved score: ${bestScore.toFixed(1)} → ${retryQA.score.toFixed(1)}/5`);
+                  await fs.copy(retryFrame, generatedFrame, { overwrite: true });
+                  bestScore = retryQA.score;
+                  bestQA = retryQA;
+                }
+                if (retryQA.pass) break;
+              }
+            }
+          }
+        }
+      }
+    }
+    } // end if (generatedFrame === null) — generate mode
+
     // Scene 1's frame becomes the style anchor for all subsequent scenes
     if (i === 0 && generatedFrame !== null) {
       scene1AnchorPath = generatedFrame;
@@ -434,6 +651,12 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
       await fs.ensureDir(imagesDir);
       const destPath = path.join(imagesDir, `scene-${i + 1}${path.extname(generatedFrame)}`);
       await fs.copy(generatedFrame, destPath, { overwrite: true });
+
+      // Apply text overlay if configured
+      if (clip.overlay) {
+        await compositeOverlay(destPath, clip.overlay, destPath, assets.fontBold);
+      }
+
       imageOutputPaths.push(destPath);
       resultAssets.images.push(destPath);
       logger.success(`Image output: scene-${i + 1} saved to output/images/`);
@@ -448,6 +671,27 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
       clip,
       prompt,
     });
+
+    // Save checkpoint + manifest after each frame
+    if (generatedFrame !== null && !dryRun) {
+      checkpoint.completedFrames[i + 1] = generatedFrame;
+      checkpoint.phase = 'storyboard';
+      await saveCheckpoint(checkpoint, PROJECTS_ROOT, projectName);
+
+      manifest.record({
+        path: generatedFrame,
+        type: 'image',
+        prompt,
+        provider: imgProvider,
+        model: imgProvider === 'gpt-image' ? 'gpt-image-1' : 'gemini-3-pro-image-preview',
+        references: assets.subjectReference ? [assets.subjectReference] : [],
+      });
+    }
+  }
+
+  // Save QA results if any evaluations were performed
+  if (qaResults.length > 0) {
+    await saveQAResults(qaResults, PROJECTS_ROOT, projectName);
   }
 
   // ── Airtable storyboard review gate (before video generation) ──────────
@@ -481,69 +725,144 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PHASE 2: Video/animation generation (sequential for assembled videos)
+  // PHASE 2: Video/animation generation (parallel with concurrency limit)
   // ═══════════════════════════════════════════════════════════════════════════
   // Storyboard-only and dry-run modes skip this entirely.
   // Image-only clips were handled in Phase 1.
 
+  // Await voiceover+whisper completion before proceeding (started concurrently with Phase 1)
+  if (voiceoverFlow) {
+    await voiceoverFlow;
+  }
+
   if (runOpts?.storyboardOnly !== true && !dryRun) {
     const videoPlans = clipPlans.filter((p) => p.outputType === 'video' || p.outputType === 'animation');
 
-    for (const plan of videoPlans) {
-      // Skip scenes rejected in Airtable review
-      if (rejectedScenes.has(plan.sceneIndex)) {
-        logger.skip(`Scene ${plan.sceneIndex} was rejected in review — skipping video generation.`);
-        continue;
+    // ── Check if Kling v3 multi-shot is feasible ──
+    const videoOnlyPlans = videoPlans.filter((p) => p.outputType === 'video' && !rejectedScenes.has(p.sceneIndex));
+    const totalDuration = videoOnlyPlans.reduce((sum, p) => sum + (p.clip.duration ?? 5), 0);
+    const firstFrame = videoOnlyPlans[0]?.generatedFrame;
+    const useMultiShot = videoProvider === 'kling-v3'
+      && videoOnlyPlans.length >= 2
+      && videoOnlyPlans.length <= 6
+      && totalDuration <= 15
+      && firstFrame !== null && firstFrame !== undefined;
+
+    if (useMultiShot) {
+      // ── Kling v3 multi-shot: unified latent space for consistent clips ──
+      logger.step(`Using Kling v3 multi-shot for ${videoOnlyPlans.length} clips (${totalDuration}s total)...`);
+
+      // Check if all outputs already exist (simple file-based cache)
+      const existChecks = await Promise.all(
+        videoOnlyPlans.map((p) =>
+          fs.pathExists(path.join(PROJECTS_ROOT, projectName, 'output/clips', `scene-${p.sceneIndex}.mp4`)),
+        ),
+      );
+      const allExist = existChecks.every(Boolean);
+
+      if (allExist) {
+        logger.skip('Multi-shot clips already exist — using cached.');
+        for (const plan of videoOnlyPlans) {
+          const scenePath = path.join(PROJECTS_ROOT, projectName, 'output/clips', `scene-${plan.sceneIndex}.mp4`);
+          clipPaths.push(scenePath);
+          resultAssets.clips.push(scenePath);
+        }
+      } else {
+        const shots: MultiShotPrompt[] = videoOnlyPlans.map((plan) => ({
+          prompt: buildVideoPrompt(plan, videoProvider, plan.generatedFrame ?? plan.clip.imageReference),
+          duration: toMultiShotDuration(plan.clip.duration ?? 5),
+        }));
+
+        const multiPaths = await generateV3MultiShot(
+          shots,
+          firstFrame,
+          formatMeta.aspectRatio,
+          PROJECTS_ROOT,
+          projectName,
+          videoOnlyPlans[0]!.sceneIndex,
+        );
+
+        for (let j = 0; j < multiPaths.length; j++) {
+          const mp = multiPaths[j]!;
+          clipPaths.push(mp);
+          resultAssets.clips.push(mp);
+          const dur = videoOnlyPlans[j]?.clip.duration ?? 5;
+          const { key } = getVideoCostKey(videoProvider, dur);
+          costTracker.logStep(key, false);
+        }
       }
 
-      // Match storyboard frame for this scene
-      const storyboardFrame = assets.storyboardFrames.find((f) => f.sceneIndex === plan.sceneIndex);
-      const imageRef = plan.generatedFrame ?? storyboardFrame?.imagePath ?? plan.clip.imageReference;
+      // Handle any animation-type clips individually (multi-shot doesn't support them)
+      const animPlans = videoPlans.filter((p) => p.outputType === 'animation' && !rejectedScenes.has(p.sceneIndex));
+      for (const plan of animPlans) {
+        const storyboardFrame = assets.storyboardFrames.find((f) => f.sceneIndex === plan.sceneIndex);
+        const imageRef = plan.generatedFrame ?? storyboardFrame?.imagePath ?? plan.clip.imageReference;
+        const clipDuration = Math.min(plan.clip.duration ?? 3, 5);
+        const options: VideoGenOptions = { aspectRatio: formatMeta.aspectRatio, duration: clipDuration, projectName, sceneIndex: plan.sceneIndex };
+        const videoPrompt = buildVideoPrompt(plan, videoProvider, imageRef);
+        const kv: KlingVersion = videoProvider === 'kling-v3' ? 'v3' : 'v2.1';
+        const clipPath = await generateFalClip(videoPrompt, options, PROJECTS_ROOT, imageRef, undefined, kv);
+        clipPaths.push(clipPath);
+        resultAssets.clips.push(clipPath);
+        const { key } = getVideoCostKey(videoProvider, clipDuration);
+        costTracker.logStep(key, false);
+      }
 
-      // Animation: clamp duration and use minimal motion prompt
-      const isAnimation = plan.outputType === 'animation';
-      const clipDuration = isAnimation
-        ? Math.min(plan.clip.duration ?? 3, 5)
-        : (plan.clip.duration ?? 5);
+    } else {
+      // ── Parallel video generation with concurrency limit ──
+      const generateClip = async (plan: ClipPlan): Promise<string | null> => {
+        if (rejectedScenes.has(plan.sceneIndex)) {
+          logger.skip(`Scene ${plan.sceneIndex} was rejected in review — skipping video generation.`);
+          return null;
+        }
 
-      const options: VideoGenOptions = {
-        aspectRatio: formatMeta.aspectRatio,
-        duration: clipDuration,
-        projectName,
-        sceneIndex: plan.sceneIndex,
+        const storyboardFrame = assets.storyboardFrames.find((f) => f.sceneIndex === plan.sceneIndex);
+        const imageRef = plan.generatedFrame ?? storyboardFrame?.imagePath ?? plan.clip.imageReference;
+        const isAnimation = plan.outputType === 'animation';
+        const clipDuration = isAnimation ? Math.min(plan.clip.duration ?? 3, 5) : (plan.clip.duration ?? 5);
+
+        const options: VideoGenOptions = {
+          aspectRatio: formatMeta.aspectRatio,
+          duration: clipDuration,
+          projectName,
+          sceneIndex: plan.sceneIndex,
+        };
+
+        const videoPrompt = buildVideoPrompt(plan, videoProvider, imageRef);
+
+        // Route to video provider (Veo falls back to Kling v3 on safety filter rejection)
+        let clipPath: string;
+        if (videoProvider === 'veo-3.1' || videoProvider === 'veo-3.1-fast') {
+          try {
+            clipPath = await generateVeoClip(videoPrompt, options, PROJECTS_ROOT, imageRef, videoProvider);
+          } catch (veoErr) {
+            const msg = veoErr instanceof Error ? veoErr.message : String(veoErr);
+            if (msg.includes('safety') || msg.includes('filtered')) {
+              logger.warn(`Veo safety-rejected scene ${plan.sceneIndex}. Falling back to Kling v3...`);
+              clipPath = await generateFalClip(videoPrompt, options, PROJECTS_ROOT, imageRef, undefined, 'v3');
+            } else {
+              throw veoErr;
+            }
+          }
+        } else {
+          const kv: KlingVersion = videoProvider === 'kling-v3' ? 'v3' : 'v2.1';
+          clipPath = await generateFalClip(videoPrompt, options, PROJECTS_ROOT, imageRef, undefined, kv);
+        }
+
+        const { key } = getVideoCostKey(videoProvider, clipDuration);
+        costTracker.logStep(key, false);
+        return clipPath;
       };
 
-      // Build video prompt
-      let videoPrompt: string;
-      if (isAnimation) {
-        // Animation: ultra-minimal motion
-        const move = plan.enrichedClipPlan?.cameraMove ?? 'slow drift';
-        videoPrompt = `Subtle gentle motion. ${move}.`;
-      } else if (imageRef !== undefined && plan.enrichedClipPlan?.cameraMove) {
-        // Image-to-video: scene context + motion direction
-        videoPrompt = `${plan.prompt}. ${plan.enrichedClipPlan.cameraMove}. Photorealistic, cinematic, smooth subtle motion.`;
-      } else {
-        // Text-to-video fallback: full scene description
-        videoPrompt = plan.enrichedClipPlan?.continuityNote
-          ? `${plan.prompt}. ${plan.enrichedClipPlan.continuityNote}`
-          : plan.prompt;
+      const tasks = videoPlans.map((plan) => () => generateClip(plan));
+      const results = await parallelWithLimit(tasks, 3);
+
+      for (const clipPath of results) {
+        if (clipPath !== null) {
+          clipPaths.push(clipPath);
+          resultAssets.clips.push(clipPath);
+        }
       }
-
-      // Route to video provider
-      let clipPath: string;
-      if (videoProvider === 'veo-3.1' || videoProvider === 'veo-3.1-fast') {
-        clipPath = await generateVeoClip(videoPrompt, options, PROJECTS_ROOT, imageRef, videoProvider);
-      } else {
-        const resolvedKlingVersion: import('../types/index.js').KlingVersion = videoProvider === 'kling-v3' ? 'v3' : 'v2.1';
-        clipPath = await generateFalClip(videoPrompt, options, PROJECTS_ROOT, imageRef, undefined, resolvedKlingVersion);
-      }
-      clipPaths.push(clipPath);
-      resultAssets.clips.push(clipPath);
-
-      // Log video cost
-      const { key } = getVideoCostKey(videoProvider, clipDuration);
-      costTracker.logStep(key, false);
-
     }
   }
 
@@ -608,6 +927,32 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
 
     await costTracker.save();
     return storyboardDir;
+  }
+
+  // ── Draft mode exit: raw clips only, no Remotion ──────────────────────
+  if (isDraft) {
+    const clipsDir = path.join(PROJECTS_ROOT, projectName, 'output', 'clips');
+    logger.success(`\n[DRAFT] Preview ready — ${clipPaths.length} clip(s) + ${imageOutputPaths.length} image(s).`);
+    logger.info(`Clips: ${clipsDir}`);
+
+    const elapsedSeconds = (Date.now() - startTime) / 1000;
+    await airtable.completeRun(airtableRecordId, clipsDir, elapsedSeconds);
+    await costTracker.save();
+    await saveConfigSnapshot(config, PROJECTS_ROOT, projectName);
+
+    if (runOpts?.jsonOutput === true) {
+      const summary = costTracker.getSummary();
+      return {
+        success: true,
+        outputPath: clipsDir,
+        projectDir,
+        mode,
+        assets: resultAssets,
+        estimatedCost: summary.totalEstimated,
+        cachedSteps: summary.entries.filter((e) => e.cached).map((e) => e.step),
+      };
+    }
+    return clipsDir;
   }
 
   // ── All-image project: skip Remotion, return images directory ──────────
@@ -748,9 +1093,80 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
   await fs.remove(tempOutputPath);
   resultAssets.video = finalPath;
 
+  // ── Multi-format renders (additional formats, clips already generated) ──
+  if (config.outputFormats && config.outputFormats.length > 0) {
+    for (const extraFormat of config.outputFormats) {
+      if (extraFormat === format) continue;
+      const extraCompId = FORMAT_TO_COMPOSITION[extraFormat];
+      if (!extraCompId) {
+        logger.warn(`Unknown extra format: ${extraFormat} — skipping.`);
+        continue;
+      }
+
+      const extraMeta = getFormatMeta(extraFormat);
+      const extraTotalFrames = Math.round(totalSeconds * extraMeta.fps);
+      const extraTempPath = path.join(PROJECTS_ROOT, projectName, 'output', `_render-${extraFormat}-temp.mp4`);
+      const extraInputProps = { ...inputProps, config: { ...config, format: extraFormat } };
+
+      logger.step(`Rendering extra format: ${extraFormat}...`);
+
+      const extraComposition = await selectComposition({
+        serveUrl: bundleLocation,
+        id: extraCompId,
+        inputProps: extraInputProps,
+      });
+
+      await renderMedia({
+        composition: { ...extraComposition, durationInFrames: extraTotalFrames },
+        serveUrl: bundleLocation,
+        codec: 'h264',
+        outputLocation: extraTempPath,
+        inputProps: extraInputProps,
+        ffmpegOverride: ({ type, args }) => {
+          if (type === 'stitcher') {
+            return [...args.slice(0, -1), '-movflags', '+faststart', args[args.length - 1]!];
+          }
+          return args;
+        },
+      });
+
+      const extraFinalPath = await packageFinalVideo(
+        extraTempPath, PROJECTS_ROOT, projectName, config.title, extraFormat,
+      );
+      await fs.remove(extraTempPath);
+      logger.success(`Extra format done: ${extraFormat}`);
+      void extraFinalPath;
+    }
+  }
+
   const elapsedSeconds = (Date.now() - startTime) / 1000;
   await airtable.completeRun(airtableRecordId, finalPath, elapsedSeconds);
   await costTracker.save();
+  await saveConfigSnapshot(config, PROJECTS_ROOT, projectName);
+
+  // ── Record brand + skill memory ──────────────────────────────────────────
+  const brandName = config.brand ?? config.client ?? config.title;
+  if (brandName && qaResults.length > 0) {
+    const qaForMemory = qaResults.map((r) => {
+      const entry: { scene: string; score: number; prompt?: string; format?: string } = {
+        scene: r.scene,
+        score: r.score,
+      };
+      const matchedPrompt = clipPlans.find((p) => `scene-${p.sceneIndex}` === r.scene)?.prompt;
+      if (matchedPrompt !== undefined) entry.prompt = matchedPrompt;
+      if (config.format !== undefined) entry.format = config.format;
+      return entry;
+    });
+    await recordBrandRun(brandName, projectName, mode, imgProvider, qaForMemory);
+    await recordSkillRun(imgProvider, qaForMemory);
+  }
+
+  // ── Save asset manifest + clear checkpoint ────────────────────────────────
+  if (finalPath) {
+    manifest.record({ path: finalPath, type: 'render', provider: 'remotion', model: 'local' });
+  }
+  await manifest.save();
+  await clearCheckpoint(PROJECTS_ROOT, projectName);
 
   // ── Return result ────────────────────────────────────────────────────────
   if (runOpts?.jsonOutput === true) {

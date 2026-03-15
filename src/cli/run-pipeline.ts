@@ -15,6 +15,8 @@ program
   .option('--variations <n>', 'Generate N storyboard variations per scene (1-4, implies --storyboard-only)', parseInt)
   .option('--airtable-review', 'Enable Airtable review gates for storyboard and clips')
   .option('--regenerate <numbers>', 'Regenerate specific images by number (e.g. 3,5)')
+  .option('--draft', 'Cheap preview: Kling v2.1 5s, skip voiceover and Remotion')
+  .option('--resume', 'Resume from last checkpoint instead of starting fresh')
   .parse();
 
 const opts = program.opts<{
@@ -26,6 +28,8 @@ const opts = program.opts<{
   variations?: number;
   airtableReview?: boolean;
   regenerate?: string;
+  draft?: boolean;
+  resume?: boolean;
 }>();
 
 async function main(): Promise<void> {
@@ -41,6 +45,8 @@ async function main(): Promise<void> {
   if (opts.dryRun === true) runOpts.dryRun = true;
   if (opts.jsonOutput === true) runOpts.jsonOutput = true;
   if (opts.airtableReview === true) runOpts.airtableReview = true;
+  if (opts.draft === true) runOpts.draft = true;
+  if (opts.resume === true) runOpts.resume = true;
 
   if (opts.variations !== undefined) {
     const n = Math.min(Math.max(opts.variations, 1), 4);

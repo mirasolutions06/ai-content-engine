@@ -9,22 +9,31 @@ You are the entry point for the AI Content Engine. Your job is to take a natural
 
 ## Workflow
 
-### Step 1: Gather Input
+### Step 1: Three-Question Brief (Default Flow)
 
-Ask the user for these details. Only the first two are required — infer the rest from research if not provided.
+Ask exactly three questions. Everything else is inferred by the Director or filled from research.
 
-**Required:**
-- Brand/product name
-- What they sell or do (one sentence)
+**Question 1 — What?**
+"What brand/product is this for, and what do they sell?"
+Accept: brand name + product description. A URL works too — use `url-to-brief.ts` to auto-extract.
 
-**Optional (ask but don't block on):**
-- Target audience (e.g. "women 25-40 interested in skincare")
-- Target platforms (Instagram, TikTok, YouTube, LinkedIn — default: all)
-- Website URL (enables auto color extraction)
-- Reference images (product photos, mood boards)
+**Question 2 — Who + Where?**
+"Who's the audience, and what platform(s)?"
+Accept: audience description + platform list. Default: "general audience, all platforms."
+
+**Question 3 — Vibe?**
+"Any visual references, mood, or style direction? (Skip if none)"
+Accept: reference images, mood words, competitor URLs, or "skip."
+
+That's it. Three questions, then generate the config. The Director handles cinematography, the pipeline handles everything else.
+
+**Advanced options** — available if the user volunteers them, but never prompted:
 - Budget sensitivity (low / normal / high — affects clip count)
-- Competitor URLs (for differentiation research)
 - Preferred video format: `youtube-short`, `tiktok`, `ad-16x9`, `ad-1x1`, `web-hero`
+- Specific videoProvider or imageProvider
+- Template to start from (product-launch, brand-story, before-after)
+
+**URL shortcut**: If the user provides a product page URL instead of answering questions, use `url-to-brief.ts` (`extractBriefFromUrl` + `generateConfigFromUrl`) to auto-extract brand, product, audience, images, and mood. Skip to Step 3.
 
 ### Step 2: Research
 
@@ -276,7 +285,23 @@ Next steps:
   Or say "run step 2" to start the pipeline runner.
 ```
 
-## Example
+## Templates
+
+Pre-built configs available in `projects/_templates/`. Use as a starting point when the user's intent matches:
+
+| Template | Mode | Scenes | Best for |
+|---|---|---|---|
+| `product-launch` | brand-images | 5 images (hero, lifestyle, detail, flat-lay, CTA) | New product announcements |
+| `brand-story` | video | 6 clips (hook, origin, craft, product, testimonial, CTA) | Brand awareness |
+| `before-after` | brand-images | 4 images (before, transition, after, product hero) | Transformation results |
+
+To use: `npm run new-project -- --name {slug} --template {name} --brand "{Brand}"`
+
+The template provides structure. The Director enriches prompts for the specific brand. The user only needs to add reference images and edit the brief.
+
+## Examples
+
+### Standard Flow
 
 **User**: "Create content for GlowLab — they sell luxury organic skincare serums. Target audience is women 25-40 on Instagram and TikTok."
 
@@ -324,3 +349,9 @@ Next steps:
   "imageFormats": ["story", "square", "landscape"]
 }
 ```
+
+### URL Shortcut
+
+**User**: "Make content for this: https://example.com/products/vitamin-c-serum"
+
+The skill uses `url-to-brief.ts` to fetch the page, extract brand/product info via Claude Haiku, download product images as references, and generate a complete config.json — no questions needed.

@@ -69,7 +69,6 @@ export async function generateVoiceover(
 
   logger.step(`Generating voiceover with voice ID: ${options.voiceId}...`);
 
-  // SDK v0.16.x: convert() returns Promise<stream.Readable>
   const audioStream = await client.textToSpeech.convert(options.voiceId, {
     text: script,
     model_id: options.modelId ?? 'eleven_multilingual_v2',
