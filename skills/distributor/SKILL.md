@@ -1,11 +1,21 @@
 ---
 name: distributor
-description: "Creates monetization strategies, finds real affiliate programs, adds revenue-generating CTAs to content, and builds distribution plans. Use this skill whenever someone asks to monetize, add affiliate links, create a revenue strategy, make money from content, build a distribution plan, or says 'run step 5'. Activates for ANY request about earning money from generated content or distributing it strategically. If deliverables exist but no monetization plan has been created, proactively suggest running this skill."
+description: "Creates monetization strategies, finds real affiliate programs, and builds distribution plans. Triggers on: any request to monetize, add affiliate links, create revenue strategy, make money from content, or build a distribution plan. If deliverables exist but no monetization plan exists, proactively suggest running this skill."
 ---
 
 # Distributor + Monetizer
 
 You research real monetization opportunities and build actionable revenue plans for the generated content. Everything must be based on actual programs, real commission rates, and published benchmarks found via web search — never fabricated.
+
+## Session Awareness
+
+When invoked:
+1. Check what exists in the project directory (config.json, output/copy/, deliverables/, output/monetization-plan.json)
+2. If a monetization plan already exists, ask: "Update the existing plan, or research fresh?"
+3. If no copy exists, this skill can still generate the plan — but can't create monetized copy variants
+4. Check `memory/brands/{slug}/` — if previous campaigns exist, reference what worked
+
+Key files: config.json, cache/brand-context.json, output/copy/all-copy.json, deliverables/
 
 ## Prerequisites
 
@@ -316,9 +326,9 @@ Pre-populate with:
 
 This gives the user a ready-made spreadsheet to track ROI on every piece of content.
 
-### Step 7: Report
+### Step 7: Report and Close the Loop
 
-Tell the user:
+Show the results:
 
 ```
 Monetization plan complete!
@@ -338,7 +348,8 @@ Files saved:
   output/monetization-plan.json  — full strategy with setup steps
   output/copy/*-monetized.json   — copy variants with natural affiliate CTAs
   output/revenue-tracker.csv     — spreadsheet to track content ROI
-
-Quick start: Follow the action items in monetization-plan.json → quickStartActions.
-Your full content-to-revenue system is ready.
 ```
+
+Then close the loop: "Your full content-to-revenue system is ready. To run another campaign for {brand}, just describe what you want next."
+
+This completes the full workflow: brief → generate → copy → package → monetize.

@@ -1,11 +1,21 @@
 ---
 name: copy-engine
-description: "Generates platform-specific copy, captions, hashtags, ad text, email sequences, and lead magnets for all generated visual assets. Use this skill whenever someone asks to write copy, generate captions, create post text, write hashtags, produce social media copy, create ad copy, write an email sequence, or says 'run step 3'. Activates for ANY request about text content to accompany generated visual assets. If visual assets exist in a project and no copy has been written yet, proactively suggest running this skill."
+description: "Writes all text content. Triggers on: any request for captions, copy, hashtags, posts, ads, emails, or text to accompany visual assets. Also handles: 'rewrite the Instagram caption', 'make the LinkedIn post shorter', 'add more hashtags', 'write copy for just tiktok'. If visual assets exist in a project and no copy has been written yet, proactively suggest running this skill."
 ---
 
 # Copy Engine
 
 You generate all text content paired with the project's visual assets. Every platform gets purpose-built copy — not generic repurposed text.
+
+## Session Awareness
+
+When invoked:
+1. Check what exists in the project directory (config.json, assets/, cache/, output/, deliverables/)
+2. If copy already exists in `output/copy/`, mention it and ask: regenerate, update specific platforms, or add new ones?
+3. If no visual assets exist yet, suggest running the pipeline first
+4. Check `memory/brands/{slug}/brand-memory.json` — if previous campaigns exist, offer to adapt tone from what worked
+
+Key files: config.json, cache/brand-context.json, cache/cost-log.json, memory/brands/{slug}/brand-memory.json
 
 ## Prerequisites
 
@@ -14,9 +24,17 @@ Before running, verify these exist:
 - At least some generated assets in `projects/{name}/output/` (images, clips, or video)
 
 Optional but strongly preferred:
-- `projects/{name}/cache/brand-context.json` — written by the Director step, contains enriched brand tone, visual style, hook, CTA, scene summaries, and voice settings
+- `projects/{name}/cache/brand-context.json` — written by the Director step
 
-If `brand-context.json` doesn't exist (pipeline hasn't run or Director was skipped), extract context directly from `config.json`.
+If `brand-context.json` doesn't exist, extract context directly from `config.json`.
+
+## Director Awareness
+
+When loading `brand-context.json`, surface the Director's creative decisions to align copy tone:
+- "The Director chose a {visualStyle} style with {colorPalette} tones."
+- Use these to match copy tone — if Director chose "calm luxury", don't write "HIGH ENERGY BUY NOW!!!"
+- The Director's hookText and CTA suggestions should inform (not dictate) the copy
+- If brand memory exists, check what copy tone scored best in previous campaigns
 
 ## Platform Selection
 
@@ -371,12 +389,12 @@ Before saving, verify every piece of copy against these rules:
 - [ ] CTAs are specific actions, not vague ("learn more" is weak, "get your free guide" is strong)
 - [ ] Brand voice is consistent across platforms but adapted to each platform's culture
 
-### Step 6: Next Steps
+### Step 6: Report and Auto-Chain
 
-Tell the user:
+Show what was generated:
 
 ```
-Copy generated for all platforms. Files saved to projects/{name}/output/copy/:
+Copy generated for all platforms:
   - instagram.json ({N} posts)
   - tiktok.json ({N} posts)
   - linkedin.json ({N} posts)
@@ -385,7 +403,8 @@ Copy generated for all platforms. Files saved to projects/{name}/output/copy/:
   - ads.json ({N} variants)
   - email-sequence.json (4 emails)
   - lead-magnet.json
-  - all-copy.json (combined)
-
-Say "package assets" or "run step 4" to create platform-ready deliverables.
 ```
+
+Then offer the next step naturally: "Want me to package these into platform-ready folders with a posting schedule?"
+
+If the user says "looks good" or similar, treat as implicit interest in packaging.

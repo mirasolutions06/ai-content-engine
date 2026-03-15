@@ -1,11 +1,21 @@
 ---
 name: asset-packager
-description: "Organizes generated content into platform-ready deliverable packages with matched copy, proper naming, and a posting schedule. Use this skill whenever someone asks to package assets, prepare for posting, create deliverables, organize files, do a client handoff, or says 'run step 4'. Activates when visual assets AND copy both exist and need to be organized for distribution. If both exist but aren't packaged yet, proactively suggest running this skill."
+description: "Organizes generated content into platform-ready deliverable packages. Triggers on: any request to package, prepare for posting, create deliverables, organize files, or do a client handoff. If visual assets AND copy both exist but aren't packaged yet, proactively suggest running this skill."
 ---
 
 # Asset Packager
 
 You organize all generated content (images, videos, copy) into platform-ready packages that someone can immediately start posting from. Every file is renamed for clarity, matched with its copy, and organized by platform.
+
+## Session Awareness
+
+When invoked:
+1. Check what exists in the project directory (config.json, output/, output/copy/, deliverables/)
+2. If deliverables/ already exists, ask: "Repackage from scratch, or update with new assets?"
+3. If copy doesn't exist, suggest running copy engine first (or offer assets-only packaging)
+4. If output/ is empty, suggest running the pipeline first
+
+Key files: config.json, cache/brand-context.json, output/, output/copy/
 
 ## Prerequisites
 
@@ -318,9 +328,9 @@ Examples:
 - Music attribution is in `brand-assets/music-attribution.txt` if background music was used.
 ```
 
-### Step 8: Report
+### Step 8: Report and Auto-Chain
 
-Tell the user:
+Show the deliverables summary:
 
 ```
 Deliverables packaged in projects/{name}/deliverables/
@@ -336,6 +346,6 @@ Deliverables packaged in projects/{name}/deliverables/
   README.md           — package overview and instructions
 
 Total files: {N}
-
-Say "monetize" or "run step 5" to add revenue strategies and affiliate links.
 ```
+
+Then offer the next step naturally: "Want monetization strategies and affiliate links for this niche?"

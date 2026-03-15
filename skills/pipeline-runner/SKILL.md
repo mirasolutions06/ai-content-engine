@@ -1,43 +1,37 @@
 ---
 name: pipeline-runner
-description: "Runs the AI content generation pipeline with cost-safe guardrails. Use this skill whenever someone wants to run the pipeline, generate assets, build content, generate video, generate images, or says 'run step 2' or 'start generation'. This skill enforces the mandatory dry-run and storyboard preview steps before any expensive API calls. NEVER run the pipeline without this skill — it prevents wasted money."
+description: "Generates visual assets (images and video). Triggers on: any request to generate, run, build, preview, or render content. Also handles: scene feedback ('scene 3 is too dark'), regeneration requests ('try that again'), quality concerns ('this looks bad'), and cost queries ('how much will this cost?'). If a project has a config.json but no generated assets, use this skill."
 ---
 
 # Pipeline Runner
 
-You orchestrate the TypeScript pipeline with mandatory cost-safety guardrails. Your job is to prevent expensive mistakes by enforcing a progressive generation workflow: dry-run first, storyboard preview second, full generation only after explicit approval.
+You orchestrate the TypeScript pipeline. Your job is to generate assets efficiently — protecting the user from expensive mistakes while not wasting their time on cheap operations.
 
-## Cost Safety Rules
+## Session Awareness
 
-These are non-negotiable. Embed them in your decision-making at every step.
+When invoked:
+1. Check what exists in the project directory (config.json, assets/, cache/, output/, deliverables/)
+2. If previous output exists but wasn't acknowledged, briefly summarize it: "You already have 5 images from a previous run (avg QA 4.6/5)."
+3. Read `cache/brand-context.json` if it exists — show the Director's creative decisions when relevant
+4. Read `cache/cost-log.json` if it exists — know what was spent previously
+5. Read `memory/brands/{slug}/brand-memory.json` if it exists — know this brand's history
 
-1. **NEVER skip the dry-run step for new projects.** Even if the user says "just run it."
-2. **NEVER skip the storyboard review step.** Storyboard frames cost ~$0.05 each. Kling clips cost $1-2 each. Always preview before committing.
-3. **NEVER proceed to Kling without explicit user approval.** The word "approve", "yes", "go ahead", "looks good", or equivalent must appear.
-4. **If the user says "just run it" or "skip preview"**, explain: "Kling clips cost $1-2 each and can't be refunded. Storyboard preview costs ~$0.25 total and catches prompt issues before they're expensive. Running storyboard first."
-5. **Show running cost total after each step completes.**
-6. **If a step fails, do not retry automatically.** Diagnose the error first.
-
-## Workflow
-
-### Step 1: Pre-flight Checks
+## Pre-flight Checks
 
 Verify the project is ready to run.
 
 **Check config exists:**
 ```bash
-# Verify config.json exists
 ls projects/{name}/config.json
 ```
-If missing, tell user: "No config.json found. Say 'create a brief' or 'run step 1' to generate one."
+If missing: "No config found. Describe what you want and I'll create a brief."
 
 **Read config and determine mode:**
 ```bash
-# Read config to check mode
 cat projects/{name}/config.json
 ```
 
-Mode determines which API keys are required:
+**Check .env for required API keys** based on mode:
 
 | Mode | Required API keys |
 |---|---|
@@ -46,320 +40,234 @@ Mode determines which API keys are required:
 | `video` (with video/animation clips) | Image provider key + `FAL_KEY`/`GEMINI_API_KEY` (video provider) + `ELEVENLABS_API_KEY` + `OPENAI_API_KEY` + `ANTHROPIC_API_KEY` |
 | `full` | All of the above |
 
-Image provider key: `GEMINI_API_KEY` (default) or `OPENAI_API_KEY` (if `imageProvider: "gpt-image"`).
-Video provider key: `FAL_KEY` (Kling) or `GEMINI_API_KEY` (Veo).
-
-**Check .env for required keys:**
-```bash
-# Check which keys are set (don't print values)
-grep -c "GEMINI_API_KEY=" .env
-grep -c "FAL_KEY=" .env
-grep -c "ELEVENLABS_API_KEY=" .env
-grep -c "OPENAI_API_KEY=" .env
-grep -c "ANTHROPIC_API_KEY=" .env
-```
-
 Report any missing keys with setup instructions:
-- `GEMINI_API_KEY` — Get at https://aistudio.google.com/apikey
-- `FAL_KEY` — Get at https://fal.ai/dashboard/keys
-- `ELEVENLABS_API_KEY` — Get at https://elevenlabs.io/app/settings/api-keys
-- `OPENAI_API_KEY` — Get at https://platform.openai.com/api-keys
-- `ANTHROPIC_API_KEY` — Get at https://console.anthropic.com/settings/keys
+- `GEMINI_API_KEY` — https://aistudio.google.com/apikey
+- `FAL_KEY` — https://fal.ai/dashboard/keys
+- `ELEVENLABS_API_KEY` — https://elevenlabs.io/app/settings/api-keys
+- `OPENAI_API_KEY` — https://platform.openai.com/api-keys
+- `ANTHROPIC_API_KEY` — https://console.anthropic.com/settings/keys
 
-**Optional keys** (not required but enhance output):
-- `PEXELS_API_KEY` — Royalty-free style/location reference images
-- `UNSPLASH_ACCESS_KEY` — Alternative image source
-- `PIXABAY_API_KEY` — Royalty-free background music auto-sourcing
-- `AIRTABLE_TOKEN` + `AIRTABLE_BASE_ID` — Run logging/tracking
+## Generation Flow (cost-proportional gates)
 
-### Step 2: Dry Run (MANDATORY for new projects)
+Match the approval ceremony to the cost. Don't make the user approve $0.50 of images the same way they approve $15 of video.
 
-Always start with a dry run. This runs the Director (cheap, ~$0.10, cached after first run) and shows exactly what every paid API call would send, without spending money.
+### LOW COST — brand-images or video with all image outputType (~$0.08/image)
 
-```bash
-npm start -- --project {name} --dry-run
-```
-
-Parse the output and present to the user:
-- **Director plan**: visual style summary, enriched prompts per scene, voice settings, suggested caption theme
-- **Asset sourcing**: what would be auto-sourced (colors, style ref, location ref, music)
-- **Image provider**: which provider generates storyboard frames (Gemini or GPT Image)
-- **Per-clip summary**: scene number, outputType (image/video/animation), duration, cost
-- **Voiceover**: script text + voice ID + estimated cost (if applicable)
-- **Video provider**: which provider generates clips (Kling v2.1/v3 or Veo 3.1)
-- **Brand images** (if applicable): scene count x format count + cost
-- **Total estimated cost**
-
-Then ask:
-```
-Dry run complete. Estimated cost: ~${X.XX}
-
-Breakdown:
-  Asset sourcing:    ~$0.12
-  Storyboard (Nx):   ~$0.XX
-  Voiceover:         ~$0.50
-  Whisper:           ~$0.02
-  Kling clips (Nx):  ~$X.00
-  ──────────────────────────
-  Total:             ~$X.XX
-
-Proceed to storyboard preview? (~$0.XX for Gemini frames only, no Kling charges)
-```
-
-**Skip condition:** If this project has been dry-run before and the user explicitly says to skip, you may proceed directly to storyboard. But NEVER skip dry-run on a project's first ever run.
-
-### Step 3: Storyboard Preview (MANDATORY before Kling)
-
-Generate Gemini storyboard frames without calling Kling. This costs ~$0.05 per frame.
-
-```bash
-npm start -- --project {name} --storyboard-only
-```
-
-After completion, list the generated frames (Gemini may return PNG or JPEG):
-```
-Storyboard frames generated:
-  projects/{name}/assets/storyboard/scene-1.jpg
-  projects/{name}/assets/storyboard/scene-2.jpg
-  projects/{name}/assets/storyboard/scene-3.jpg
-  projects/{name}/assets/storyboard/scene-4.jpg
-
-Review the frames. Each one will become a 5-second video clip via Kling.
-Cost per clip: v2.1 ~$0.49 (default) | v3 ~$1.12 (higher quality).
-
-Options:
-  "approve" — proceed to full generation (~$X.XX for Kling + voiceover)
-  "revise scene 2" — describe what should change, I'll update the prompt
-  "regenerate scene 3" — delete and re-run storyboard to get a new frame
-  "abort" — stop here, no further charges
-```
-
-**If user wants to revise a prompt:**
-1. Read current config.json
-2. Update the specific clip prompt based on user feedback
-3. Delete the storyboard frame for that scene: `projects/{name}/assets/storyboard/scene-{N}.png`
-4. Re-run `--storyboard-only` (only the missing frame will regenerate — idempotent)
-5. Show the new frame for approval
-
-**If user wants to regenerate without changing the prompt:**
-1. Delete the specific frame file
-2. Re-run `--storyboard-only`
-
-### Step 4: Full Generation (only after approval)
-
-Only proceed when the user has explicitly approved the storyboard frames.
+Run immediately. No dry-run, no storyboard gate.
 
 ```bash
 npm start -- --project {name} --json-output
 ```
 
-This runs the full pipeline:
-1. Asset sourcing (auto-sources brand colors, style reference, location reference, music)
-2. Director (cached from dry-run — free)
-3. Voiceover generation (ElevenLabs)
-4. Transcription (Whisper)
-5. Storyboard frames (cached from preview — free)
-6. Kling video clips (the expensive part)
-7. Remotion render (local, free)
-8. Final video packaging (ffmpeg, local, free)
+After completion:
+- Show generated images with QA scores inline
+- If any QA score < 3.5, flag it: "Scene 3 scored 2.8/5 — want me to regenerate it?"
+- Offer copy generation naturally (see Auto-Chain)
 
-Parse the JSON output (`PipelineResult`):
-```json
-{
-  "success": true,
-  "outputPath": "/path/to/final-video.mp4",
-  "projectDir": "/path/to/projects/{name}",
-  "mode": "video",
-  "assets": {
-    "images": ["list of generated image paths"],
-    "clips": ["list of generated clip paths"],
-    "voiceover": "/path/to/voiceover.mp3",
-    "video": "/path/to/final-video.mp4"
-  },
-  "estimatedCost": 5.42,
-  "cachedSteps": ["director", "gemini-frame"]
-}
+### MEDIUM COST — video with Kling v2.1, total <$5
+
+Skip dry-run if the project has run before (config hash hasn't changed for Director).
+
+Run storyboard preview:
+```bash
+npm start -- --project {name} --storyboard-only
 ```
 
-Present results:
+Show frames. One approval gate:
 ```
-Pipeline complete!
-
-Generated assets:
-  Video:      projects/{name}/output/{title}-{timestamp}.mp4
-  Voiceover:  projects/{name}/output/audio/voiceover.mp3
-  Clips:      4 clips in projects/{name}/output/clips/
-  Storyboard: 4 frames in projects/{name}/assets/storyboard/
-
-Cost summary:
-  Estimated total: ~$X.XX
-  Saved by cache:  ~$X.XX (director, storyboard frames)
-
-Say "write copy" or "run step 3" to generate text content for all platforms.
+Frames ready. Each becomes a 5-second video clip.
+Cost for Kling v2.1: ~$X.XX for {N} clips.
+Approve?
 ```
 
-### Step 5: Handle Errors
+On approval:
+```bash
+npm start -- --project {name} --json-output
+```
+
+### HIGH COST — Kling v3, Veo, or total >$5
+
+Always dry-run first:
+```bash
+npm start -- --project {name} --dry-run
+```
+
+Present Director plan + cost breakdown. Read `cache/brand-context.json` and show:
+- Visual style, lighting, and color palette decisions
+- Enriched prompt for each scene (first 100 chars)
+- Suggested hook and CTA
+- Full cost breakdown by step
+
+Then storyboard preview:
+```bash
+npm start -- --project {name} --storyboard-only
+```
+
+Show frames. Explicit approval with cost stated:
+```
+Approve all {N} clips at ~$X.XX?
+```
+
+On approval:
+```bash
+npm start -- --project {name} --json-output
+```
+
+### Override
+
+If the user says "just run it" or "skip preview" — explain the cost once. If they insist, respect it. The user's explicit intent takes priority.
+
+## Scene Feedback
+
+When the user gives feedback on specific scenes, translate it into pipeline operations. Don't make them know about file deletion or CLI flags.
+
+### Prompt feedback ("scene 3 is too dark", "make scene 2 warmer")
+
+1. Read config.json
+2. Update the specific clip's prompt to incorporate the feedback
+3. Delete the scene's output file(s) — check both `assets/storyboard/` and `output/` directories (both `.png` and `.jpg`)
+4. Re-run with the appropriate flag (`--storyboard-only` for frames, full for clips)
+5. Only the changed scene regenerates — everything else is cached
+6. Show the new result
+
+### Regeneration ("try scene 4 again", "give me options for scene 1")
+
+- **Single retry**: Delete the file, re-run (same prompt, different generation result)
+- **Multiple options**: `npm start -- --project {name} --variations 3`
+
+### Bulk operations
+
+- "Regenerate scenes 2 and 5": `npm start -- --project {name} --regenerate 2,5`
+- "Start fresh": delete `cache/` and `output/` directories, re-run
+- "Resume": `npm start -- --project {name} --resume`
+
+### Video clip feedback ("the video for scene 2 is bad")
+
+1. Delete `output/clips/scene-{N}.mp4`
+2. Optionally fix the storyboard frame first (better input = better video)
+3. Re-run: `npm start -- --project {name} --json-output`
+4. Only that clip's Kling call runs (~$1). Everything else cached.
+
+**Always show the cost of regeneration before doing it.**
+
+## Advanced Features
+
+Surface these when contextually relevant — don't list them upfront.
+
+**Draft mode** (`--draft`):
+Cheap preview: Kling v2.1 5s for all clips, skip voiceover and Remotion. ~60% cheaper. Offer when the user wants a "quick preview" or "rough cut" or is iterating on prompts.
+
+**Resume** (`--resume`):
+Continues from last checkpoint if pipeline was interrupted. Offer when pipeline fails mid-run, or user says "pick up where we left off."
+
+**Variations** (`--variations 3`):
+Generates 2-4 storyboard variations per scene using Director-suggested angles. Implies `--storyboard-only`. Offer when user is unsure about composition or wants options.
+
+**Regenerate** (`--regenerate 3,5`):
+Deletes and regenerates specific scenes. Other scenes untouched. Offer when user says "redo scene 3 and 5" or "try those two again."
+
+**Config diff** (automatic):
+Pipeline auto-detects which clips changed since last run. Unchanged clips use cached output (free). Mention when user edits prompts: "Only scenes 2 and 4 changed — regenerating those two only (~$0.16)."
+
+**QA scores** (automatic for brand-images):
+Every generated image gets a 1-5 quality score from Haiku vision. Proactively flag low scores: "Scene 3 scored 2.8/5 (artifacts detected). Regenerate?"
+
+## Handle Errors
 
 If any step fails:
 
 **API key errors:**
 ```
 Error: ELEVENLABS_API_KEY is not set
-→ Add your key to the .env file. Get one at: https://elevenlabs.io/app/settings/api-keys
+→ Add your key to .env. Get one at: https://elevenlabs.io/app/settings/api-keys
 ```
 
-**Kling generation failures:**
+**Generation failures:**
 ```
 Error: fal.ai returned error for scene 3
-→ The scene prompt may be too complex. Try simplifying it:
-  Current: "{current prompt}"
-  Suggestion: simplify to focus on one subject and one action
-→ Or retry — fal.ai occasionally has transient failures
+→ The prompt may be too complex. Try simplifying to one subject, one action.
+→ Or retry — fal.ai occasionally has transient failures.
 ```
 
 **Gemini failures:**
 ```
-Error: Gemini returned no image data for scene 2
-→ Try adjusting the prompt — Gemini may have flagged content.
-→ Or delete the frame and re-run --storyboard-only
+Error: Gemini returned no image for scene 2
+→ Gemini may have flagged the content. Try adjusting the prompt.
+→ Or delete the frame and regenerate.
 ```
 
-**General approach:** Never retry automatically. Diagnose first, suggest a fix, ask the user.
+Never retry automatically. Diagnose first, suggest a fix, ask the user.
 
 ## Mode-Specific Behavior
 
 ### brand-images mode
-```bash
-# Dry run
-npm start -- --project {name} --dry-run
-# Full run (no storyboard step — images only)
-npm start -- --project {name}
-```
-No storyboard preview needed — brand images are cheap (~$0.05 each) and fast. Still do the dry run to show what will be generated.
+No storyboard gate — images are cheap (~$0.08 each). Run directly via `npm start -- --project {name}`.
 
-**QA scoring:** After each image generates, Claude Haiku vision scores it on model accuracy, product accuracy, composition, and artifacts (1-5 each). Results are logged inline and saved to `cache/qa-results.json`. Scores below 3.0 get a warning. QA does not auto-regenerate — it's a quality signal for review.
+**QA scoring:** Haiku vision scores each image on model accuracy, product accuracy, composition, and artifacts (1-5). Results saved to `cache/qa-results.json`. Scores below 3.0 get a warning.
 
-**Key quality factors for brand-images:**
+**Key quality factors:**
 - `products` field prevents phantom product invention
-- `skipAutoRefs` avoids low-quality auto-generated style/location references
+- `skipAutoRefs` avoids low-quality auto-generated references
 - Reference images (`model-*.jpg`, `product-*.jpg`) are the single biggest quality lever
-- The Director enriches prompts with cinematography detail — config prompts should be evocative but not hyper-specific (leave room for enrichment)
-- Scene-1 anchoring: the first generated image becomes the style reference for all subsequent images
+- Director enriches prompts — config prompts should be evocative, not hyper-specific
+- Scene-1 anchoring: first image becomes style reference for all subsequent images
 
 ### video mode — all image outputType
-If every clip has `"outputType": "image"`, no video generation runs. Storyboard frames ARE the output — copied to `output/images/`. Skip storyboard review gate (images are cheap, ~$0.04-0.08 each). Remotion is skipped entirely.
+No video generation. Storyboard frames ARE the output. No storyboard review gate needed. Remotion skipped.
 
 ### video mode — with video/animation clips
-Full workflow: dry-run → storyboard → approve → full generation. Video clips generate sequentially. Each clip is independent (no cross-scene end-frame conditioning — this caused morphing between different shot types). Animation clips auto-clamp to max 5s with minimal motion prompts.
+Full flow with cost-proportional gates (see above). Each clip is independent. Animation clips auto-clamp to 5s max.
 
-### video mode — mixed (some images, some videos)
-Dry-run shows which clips are images vs videos. Image clips are resolved in Phase 1 (storyboard). Only video/animation clips go through Phase 2 (video gen). Cost breakdown reflects the mix.
+### video mode — mixed
+Dry-run shows which clips are images vs videos. Image clips resolve in Phase 1 (cheap). Video clips go through Phase 2 (expensive). Cost breakdown reflects the mix.
 
 ### full mode
-Generates brand images first (cheap), then follows the full video workflow. Dry run shows both image and video costs.
+Brand images first (cheap), then full video workflow. Dry run shows both costs.
 
-## Partial Re-runs (Fix One Scene Without Re-running Everything)
+## Partial Re-runs
 
-This is the most common scenario after the first full generation: one scene looks wrong and needs fixing. The pipeline is fully idempotent — it skips any step whose output file already exists. So you only pay for what you regenerate.
-
-### Fix a storyboard frame (scene looks wrong before Kling)
-
-The user doesn't like how scene 3 looks in the storyboard preview.
-
-1. **If the prompt needs changing:** Edit `config.json` to update the clip prompt for scene 3.
-2. Delete the specific frame (check for both `.png` and `.jpg` — Gemini may return either format):
-   ```bash
-   rm projects/{name}/assets/storyboard/scene-3.png projects/{name}/assets/storyboard/scene-3.jpg 2>/dev/null
-   ```
-3. Re-run storyboard-only:
-   ```bash
-   npm start -- --project {name} --storyboard-only
-   ```
-   Only scene 3 regenerates (~$0.05). All other frames are skipped (files exist).
-4. Show the new frame to the user for approval.
-
-### Fix a Kling video clip (clip looks wrong after full generation)
-
-Scene 2's video clip came out badly. The user wants just that one clip redone.
-
-1. **Optionally** fix the storyboard frame first (see above) — better input = better video.
-2. Delete the specific clip:
-   ```bash
-   rm projects/{name}/output/clips/scene-2.mp4
-   ```
-3. Re-run the full pipeline:
-   ```bash
-   npm start -- --project {name} --json-output
-   ```
-   Only scene 2's Kling generation runs (~$1.00). Director, voiceover, other storyboard frames, and other clips are all cached and free. The final Remotion render will re-run (local, free) to incorporate the new clip.
-
-**Cost:** ~$1.00-2.00 for the single clip vs ~$4.00-8.00 for all clips. This is the biggest cost saver.
-
-### Regenerate voiceover (after script edit)
-
-The ElevenLabs voiceover uses hash-based caching: it hashes the script text + voice settings. If the user edits the script in `config.json`:
-
-1. Just re-run the pipeline — the new script hash won't match the cache, so a new voiceover generates automatically.
-2. The old cached file stays in `cache/voiceover-{old-hash}.mp3` (free rollback if needed).
-3. Whisper will also re-run since the voiceover changed.
-
-**No manual deletion needed** — the content hash handles it.
-
-### Regenerate Director plan (after prompt edits)
-
-The Director plan is cached by a hash of the entire `config.json`. If you edit any config field, the hash changes and the Director automatically re-runs on next pipeline execution.
-
-To force a fresh plan even without config changes:
-```bash
-rm projects/{name}/cache/director-plan.json
-```
-
-Then re-run. The Director will also regenerate `cache/brand-context.json`.
-
-### Quick reference
+The pipeline is fully idempotent — it skips any step whose output file exists. You only pay for what you regenerate.
 
 | What to fix | Delete | Re-run command | Cost |
 |---|---|---|---|
 | One storyboard frame | `assets/storyboard/scene-{N}.png` or `.jpg` | `--storyboard-only` | ~$0.05 |
 | One video clip (v2.1) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$0.49-0.90 |
 | One video clip (v3) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$1.12-2.24 |
-| Voiceover | Nothing (hash auto-detects script change) | `--json-output` | ~$0.50 |
+| Voiceover | Nothing — hash auto-detects script change | `--json-output` | ~$0.50 |
 | Director plan | `cache/director-plan.json` | `--json-output` | ~$0.10 |
-| Brand colors | `assets/brand/brand.json` | `--json-output` | ~$0.01-0.02 |
-| Style reference | `assets/reference/style.png` or `.jpg` | `--json-output` | ~$0.05 |
-| Everything | `cache/` and `output/` directories | `--json-output` | Full cost |
+| Everything | `cache/` and `output/` dirs | `--json-output` | Full cost |
 
-## Kling Video Quality — What Works and What Doesn't
+## Kling Video Quality
 
-### What works well
-- **Storyboard-driven i2v (image-to-video)**: Providing a high-quality storyboard frame as `start_image_url` produces significantly better results than text-to-video. The frame anchors the scene.
-- **cfg_scale 0.7**: Keeps the output close to the source image while allowing natural motion (breathing, steam, hair). Lower values (0.5) let the image drift too far.
-- **Scene description + camera move prompts**: Prompts like `"Woman holding amber serum bottle in marble bathroom. Slow gentle push-in. Photorealistic, cinematic, smooth subtle motion."` work well. The scene description gives Kling context; the camera move gives it direction.
-- **Enhanced negative prompt**: Adding `face distortion, changing face, melting skin, deformed face, changing hair, identity shift` significantly reduces portrait artifacts.
-- **Reference images for the Director**: Model and product photos sent to the Director (Claude) result in better enriched prompts and camera moves, which flow through to better Kling output.
-- **Independent clips**: Each clip generates independently from its own storyboard frame. No cross-scene end-frame conditioning — this prevents morphing artifacts when shot types differ (e.g. medium → close-up).
+### What works
+- **Storyboard-driven i2v**: High-quality frame as `start_image_url` anchors the scene
+- **cfg_scale 0.7**: Close to source image but allows natural motion
+- **Scene description + camera move prompts**: "Woman holding serum bottle. Slow push-in. Cinematic."
+- **Enhanced negative prompt**: face distortion, changing face, melting skin, identity shift
+- **Reference images for Director**: Model and product photos → better enriched prompts → better Kling output
+- **Independent clips**: Each from its own frame. No cross-scene morphing.
 
-### What doesn't work / known limitations
-- **Cross-scene end_image_url**: Passing scene 1's last frame as scene 2's end image forces Kling to morph between compositions. Disabled — produces terrible results when shot types differ.
-- **Motion-only prompts for i2v**: Prompts like just `"Slow push-in. Smooth subtle motion."` without scene context produce generic results. Kling needs to know WHAT it's animating.
-- **Text/logo rendering**: Kling cannot render readable text. Never include text in prompts. Use Remotion overlays for text.
-- **Complex multi-subject scenes**: Scenes with multiple people or fast action produce more artifacts. Keep scenes simple — one subject, one action.
-- **Face consistency across clips**: Different storyboard frames may produce slightly different faces. This is a fundamental limitation of the current pipeline — each clip is independently generated.
-- **cfg_scale too high (>0.8)**: Produces nearly static video with barely any motion. 0.7 is the sweet spot.
-- **v2.1 vs v3 quality**: v3 produces noticeably smoother motion but costs ~2.3x more. For beauty/product content, v3 is worth the premium. For simple scenes, v2.1 is adequate.
+### What doesn't work
+- **Cross-scene end_image_url**: Forces morphing between compositions. Disabled.
+- **Motion-only prompts**: Kling needs scene context, not just camera moves
+- **Text/logo rendering**: Kling can't do text. Use Remotion overlays.
+- **Complex multi-subject scenes**: More artifacts. One subject, one action.
+- **cfg_scale >0.8**: Nearly static video. 0.7 is the sweet spot.
+- **v2.1 vs v3**: v3 smoother motion, 2.3x more. Worth it for beauty/portrait.
 
-### Quality checklist before running Kling
-1. Storyboard frames look correct (right composition, right subject, right lighting)
-2. Reference images provided: `model-1.jpg`, `product-1.jpg` etc. in project root
-3. `videoProvider: "kling-v3"` set in config (recommended for beauty/portrait content)
-4. `skipAutoRefs` set if you don't want auto-sourced style/location refs polluting the scene
-5. Prompts describe a single clear moment with lighting and mood cues
+### Quality checklist before Kling
+1. Storyboard frames correct (composition, subject, lighting)
+2. Reference images provided (`model-1.jpg`, `product-1.jpg`)
+3. `videoProvider: "kling-v3"` for beauty/portrait content
+4. `skipAutoRefs` if you don't want auto-sourced refs
+5. Single clear moment per prompt with lighting/mood cues
 6. No text/logo requests in prompts
 
-## Re-running Full Projects
+## Auto-Chain
 
-If the user wants a complete re-run:
-
-- **Cached steps are free.** Director plan, storyboard frames, and voiceover are all cached by content hash. Re-running with the same config produces the same output at zero cost.
-- **Changed config triggers regeneration.** If the user modified prompts, script, or voice settings, only the changed steps regenerate.
-- **To force full regeneration:** Delete the `cache/` and `output/` directories, then re-run.
+After generation completes:
+- Show assets inline with QA scores (for brand-images)
+- Show cost summary (estimated vs saved by cache)
+- If any images scored < 3.5, ask about regeneration first
+- Then: "Want copy for these? I'll write captions, ads, and an email sequence."
+- If user says "looks good" or "perfect" without asking for copy, treat as implicit interest: "Great. Want me to write copy for these too?"

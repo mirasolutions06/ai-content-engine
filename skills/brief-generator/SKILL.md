@@ -1,11 +1,37 @@
 ---
 name: brief-generator
-description: "Generates a complete project config.json from a natural language brief. Use this skill whenever someone wants to create content for a brand or product, start a new project, or set up a campaign. Triggers on: 'create a brief', 'new project', 'generate content for', 'start a campaign', 'make a video for', 'content for [product]', 'create a config', 'set up [brand]', or any request involving content creation for a brand/product that doesn't already have a project folder. When in doubt, use this skill first — it's the entry point for all content production."
+description: "Entry point for all content creation. Triggers on any request to create content for a brand, product, or campaign. Also handles: 'change the brief', 'update the config', 'add more scenes', 'switch to video mode', 'adjust the prompts'. If the user describes what they want but doesn't have a project yet, start here."
 ---
 
 # Brief Generator
 
 You are the entry point for the AI Content Engine. Your job is to take a natural language description of a brand, product, or campaign and produce a valid `config.json` that the pipeline can execute.
+
+## Session Awareness
+
+When invoked:
+1. Check what exists in the project directory (config.json, assets/, cache/, output/)
+2. If a config already exists, ask: "Update the existing brief, or start fresh?"
+3. If output exists from a previous run, mention it: "You have assets from a previous run."
+4. Check `memory/brands/` for returning brand data
+
+Key files: config.json, cache/brand-context.json, cache/cost-log.json, memory/brands/{slug}/brand-memory.json
+
+## Brand Memory (Repeat Brands)
+
+Before asking questions, check if this is a returning brand:
+
+1. Search `memory/brands/` for a matching brand slug
+2. If found, load `brand-memory.json`
+
+**Returning brand with memory:**
+- Skip Question 1 — brand/product already known
+- Show: "I have {runCount} previous campaigns for {brand} (avg QA: {avgScore}/5). Best provider: {bestProvider}."
+- Show top 3 highest-scoring prompts from past campaigns
+- Ask only: "What's different about this campaign?" and "Same visual style, or new direction?"
+- Default to best-performing imageProvider from memory
+
+**New brand:** Follow the standard three-question flow below.
 
 ## Workflow
 
@@ -106,42 +132,38 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
 - `cta`: omit if not relevant (Director will suggest one)
 - `imageFormats`: omit to use default `["story", "square", "landscape"]`
 - `captionPosition`: omit to use default `"bottom"`
-- `captionTheme`: omit to let the Director auto-select based on brand tone. Set explicitly to override. Options: `bold` (TikTok pill-style highlights), `editorial` (clean luxury underline accent), `minimal` (simple opacity-based)
-- `imageProvider`: omit for default `"gemini"`. Set to `"gpt-image"` for GPT Image 1 (~$0.04-0.08/frame, more literal/explicit style). Project-level — applies to all clips.
-- `videoProvider`: omit for default `"kling-v2.1"`. Options: `"kling-v3"` (better motion, ~2.3x more), `"veo-3.1"` (Google, longer clips 4-8s), `"veo-3.1-fast"` (cheaper Veo).
-- `outputType` per clip: omit for default based on mode (`"video"` for video mode, `"image"` for brand-images). Set to `"image"` for stills, `"animation"` for short subtle motion (clamped to 5s max).
-- `duration` per clip: omit for default `5`. Any number 1-15. Veo maps to 4/6/8s; Kling to 5/10s.
-- `videoProvider` for Kling: use `"kling-v3"` for beauty/portrait/product content (smoother motion, ~$1.12/5s). Use `"kling-v2.1"` for simpler scenes (~$0.49/5s). v3 is worth the 2.3x premium for anything involving faces or close-ups.
-- `colorUnify`: omit for default `false`. Set to `true` to apply a subtle brand-colored overlay on clips to unify color temperature across different Kling-generated scenes.
-- `colorUnifyOpacity`: omit for default `0.06` (6%). Adjust 0-1 if color unity overlay is too strong or subtle.
+- `captionTheme`: omit to let the Director auto-select based on brand tone. Options: `bold` (TikTok pill-style), `editorial` (clean luxury underline), `minimal` (simple opacity)
+- `imageProvider`: omit for default `"gemini"`. Set `"gpt-image"` for GPT Image 1 (~$0.04-0.08/frame, more literal style).
+- `videoProvider`: omit for default `"kling-v2.1"`. Options: `"kling-v3"` (better motion, ~2.3x more), `"veo-3.1"` (Google, 4-8s clips), `"veo-3.1-fast"` (cheaper Veo).
+- `outputType` per clip: omit for default based on mode
+- `duration` per clip: omit for default `5`. Any number 1-15.
+- `colorUnify`: omit for default `false`. Set `true` to apply subtle brand-colored overlay across clips.
 
 ### Brand-Images Config Best Practices
 
-These fields are critical for brand-images mode quality:
-
 **`products` field (strongly recommended):**
-List the exact product(s) in the campaign. Prevents Gemini from inventing phantom products.
+List exact product(s). Prevents Gemini from inventing phantom products.
 ```json
 "products": ["amber glass dropper serum bottle"]
 ```
 
 **`skipAutoRefs` field (use when appropriate):**
-Skip auto-generated style/location references when they're not needed. Product-only campaigns with no model or specific location should skip both to avoid polluting generation with low-quality auto-refs.
+Skip auto-generated references when not needed.
 ```json
 "skipAutoRefs": ["style", "location"]
 ```
 
 **Reference images (the biggest quality lever):**
-Provide specific reference images in the project directory. Named files get labeled instructions in the Gemini prompt:
-- `model-1.jpg`, `model-2.jpg` — person's face/features (CRITICAL for multi-person scenes)
+Named files in the project directory get labeled in the Gemini prompt:
+- `model-1.jpg`, `model-2.jpg` — person's face/features
 - `product-1.jpg`, `product-2.jpg` — exact product appearance
 - `style.jpg` — visual mood reference
 - `location.jpg` — environment reference
 
-More refs = better consistency. Nike used 6 refs (3 shoe angles, model, top, tights) and got campaign-grade results. Ama Shea used zero refs and still scored 4.5-5.0/5 with good prompts.
+More refs = better consistency. Nike used 6 refs and got campaign-grade output. Ama Shea used zero refs and still scored 4.5-5.0/5 with good prompts.
 
 **Prompt style for brand-images:**
-Write LOOSE, evocative prompts — not hyper-specific product descriptions. The Director will enrich them with cinematography detail. Over-specifying (exact materials, exact compositions) constrains Gemini and degrades output.
+Write LOOSE, evocative prompts — not hyper-specific descriptions. The Director enriches them. Over-specifying constrains Gemini.
 
 Good: `"Hero product shot on dark weathered wood surface, surrounded by raw shea nuts and dried botanicals, warm golden-amber key light from camera-right, shallow depth of field, editorial product photography"`
 
@@ -149,17 +171,13 @@ Bad: `"Glass jar of whipped shea body butter with wooden lid on dark weathered w
 
 ### Scene Prompt Rules
 
-These are critical. Bad prompts waste expensive API calls. **The #1 quality issue is scenes that look like 4 different clips glued together.** Follow these rules to produce visually coherent content.
-
 #### Visual Consistency (MOST IMPORTANT)
 
 ALL scenes must share the SAME:
-- **Lighting direction** — pick ONE setup (e.g. "soft window light from camera-left") and use it in every prompt
-- **Background/surface** — pick ONE setting (e.g. "clean white marble surface") and repeat it
-- **Color temperature** — pick ONE palette (e.g. "warm amber tones, muted highlights") and keep it consistent
-- **Subject** — the same product/person must appear in EVERY scene
-
-The Director AI enriches each prompt with detailed `lightingSetup`, `backgroundDescription`, and `colorPalette`. Your prompts should be consistent but leave room for the Director to add cinematography detail — don't over-specify what the Director will fill in.
+- **Lighting direction** — pick ONE setup and use it in every prompt
+- **Background/surface** — pick ONE setting and repeat it
+- **Color temperature** — pick ONE palette and keep it consistent
+- **Subject** — the same product/person in EVERY scene
 
 #### Progressive Reveal Shot Framework
 
@@ -172,83 +190,55 @@ Structure scenes as a single continuous photo shoot where only the camera distan
 | 3 (Hero) | Medium or wide | Money shot — full product in context | "Medium shot of the bottle on marble surface with botanicals" |
 | 4 (CTA) | Detail or medium | Reinforce desire — support the call to action | "Detail shot of serum texture catching the light" |
 
-This mirrors how professional product shoots work: same subject, same set, same lighting, different focal lengths.
-
 #### Prompt Writing Rules
 
-1. **Length**: 50-300 characters per prompt. Under 50 = too vague for Kling. Over 400 = gets truncated.
-2. **NO text/logos/typography**: AI video cannot render readable text. Never include words like "text", "logo", "typography", "font", "write", "writing", "saying", "reads", "letter", "word", "headline" in scene prompts.
-3. **Visual style cues required**: Every prompt must include at least one style keyword: lighting, light, shadow, cinematic, mood, tone, color, warm, cool, dark, bright, soft, dramatic, golden, neon, pastel, muted, vibrant, editorial, minimal, luxury, gritty, bokeh, ambient, backlit, silhouette.
-4. **One moment per prompt**: Describe a single clear visual moment, not a sequence. "Woman applying serum in golden light" not "Woman picks up serum, applies it, then smiles."
-5. **Repeat the lighting setup**: Mention the SAME lighting in every prompt (e.g. "soft diffused window light from camera-left" in all 4 scenes).
-6. **Repeat the background**: Mention the SAME surface/environment in every prompt (e.g. "on white marble surface" in all 4 scenes).
-7. **Vary only the camera**: Each scene should differ only in camera distance (extreme close-up, close-up, medium, wide, detail).
-8. **Typical clip count**: 3-5 clips is standard. Each 5s clip costs ~$1.05 (storyboard + Kling). Warn if proposing >6 clips.
+1. **Length**: 50-300 characters per prompt. Under 50 = too vague. Over 400 = gets truncated.
+2. **NO text/logos/typography**: AI cannot render readable text. Never include "text", "logo", "font", "write", "saying", "reads", "letter", "word", "headline" in prompts.
+3. **Visual style cues required**: Every prompt needs at least one style keyword: lighting, shadow, cinematic, mood, warm, cool, golden, bokeh, ambient, backlit, editorial, etc.
+4. **One moment per prompt**: "Woman applying serum in golden light" not "Woman picks up serum, applies it, then smiles."
+5. **Repeat the lighting**: Same lighting in every prompt.
+6. **Repeat the background**: Same surface/environment in every prompt.
+7. **Vary only the camera**: Each scene differs only in camera distance.
+8. **Typical clip count**: 3-5 clips standard. Warn if >6.
 
-### Video-Specific Prompt Tips (Kling i2v)
+### Video-Specific Prompt Tips
 
-When generating config for video mode, prompts are used both for storyboard image generation AND as guidance for Kling's image-to-video animation. Write prompts that work for both:
-
-- **Describe a single frozen moment, not motion**: Kling adds the motion. "Woman holding amber serum bottle" not "Woman picks up serum bottle."
-- **Include environment/lighting**: Kling uses this context to animate consistently. "Soft morning light through frosted window, marble bathroom" helps it maintain the scene.
-- **Keep scenes compositionally independent**: Each clip generates from its own storyboard frame. Don't write scene 2 as a continuation of scene 1 — write each as a standalone moment.
-- **Avoid complex multi-person scenes**: Kling handles single-subject best. Two people = more artifacts.
-- **For beauty/portrait content**: Use `videoProvider: "kling-v3"` and provide `model-1.jpg` reference. The Director sends model photos to Claude for better camera direction.
-- **Provide reference images**: `model-1.jpg`, `product-1.jpg` etc. in the project root are the single biggest quality lever for video output.
+- **Describe a frozen moment, not motion**: Kling adds motion. "Woman holding serum bottle" not "Woman picks up bottle."
+- **Include environment/lighting**: Kling uses context to animate consistently.
+- **Keep scenes compositionally independent**: Each clip from its own frame, standalone moment.
+- **Avoid complex multi-person scenes**: Single subject best.
+- **For beauty/portrait**: Use `videoProvider: "kling-v3"` and provide `model-1.jpg` reference.
 
 ### Step 5: Validate Before Saving
 
-Run these checks on the generated config. Fix any issues and re-validate. Never save an invalid config.
-
 | Check | Rule | Action if fails |
 |---|---|---|
-| Prompt length | Each prompt 50-300 chars | Rewrite the prompt |
-| Text/logo mentions | No `text`, `logo`, `typography`, `font`, `write`, `saying`, `reads`, `letter`, `word`, `headline` | Remove text references, describe visuals only |
-| Style cues | At least one style keyword per prompt | Add lighting/color/mood direction |
-| Script length | `word_count / 2.5 <= time_limit` (30s shorts, 60s ads, 15s web-hero) | Trim the script |
-| Clip count | Warn if >6 clips (cost > $6.30 for Kling alone) | Suggest consolidation |
-| voiceId presence | If `script` is set, `voiceId` must also be set | Ask user for voice ID |
-| Format match | `format` must be one of: `youtube-short`, `tiktok`, `ad-16x9`, `ad-1x1`, `web-hero` | Fix to valid format |
+| Prompt length | 50-300 chars each | Rewrite |
+| Text/logo mentions | No text rendering words | Remove, describe visuals only |
+| Style cues | At least one per prompt | Add lighting/color/mood |
+| Script length | `words / 2.5 <= time_limit` | Trim |
+| Clip count | Warn if >6 | Suggest consolidation |
+| voiceId | Required if script is set | Ask user |
+| Format | Must be valid | Fix |
 
 ### Step 6: Show Cost Estimate
 
-Calculate and display estimated cost before saving:
-
 | Step | Cost | Condition |
 |---|---|---|
-| Director (Claude Sonnet) | ~$0.10 | Always (runs once, cached after) |
-| Asset sourcing (Gemini) | ~$0.05-0.12 | Style ref + optional location ref + optional color extraction |
-| Storyboard frames (Gemini) | ~$0.08 x clips | Per clip (default imageProvider) |
-| Storyboard frames (GPT Image) | ~$0.04-0.08 x clips | Per clip (imageProvider: "gpt-image") |
-| Voiceover (ElevenLabs) | ~$0.50 | Only if script provided |
-| Transcription (Whisper) | ~$0.02 | Only if voiceover generated |
+| Director (Claude) | ~$0.10 | Always |
+| Asset sourcing (Gemini) | ~$0.05-0.12 | Style ref + optional extras |
+| Storyboard frames (Gemini) | ~$0.08 x clips | Default imageProvider |
+| Storyboard frames (GPT Image) | ~$0.04-0.08 x clips | imageProvider: "gpt-image" |
+| Voiceover (ElevenLabs) | ~$0.50 | Only if script |
+| Transcription (Whisper) | ~$0.02 | Only if voiceover |
 | Video clips (Kling v2.1) | ~$0.49/5s, ~$0.90/10s | Per video/animation clip |
-| Video clips (Kling v3) | ~$1.12/5s, ~$2.24/10s | Per video/animation clip — higher quality |
-| Video clips (Veo 3.1) | ~$4.50/6s, ~$6.00/8s | Per video/animation clip — Google |
-| Brand images (Gemini 3 Pro) | ~$0.08 x clips x formats | Only if mode includes brand-images |
+| Video clips (Kling v3) | ~$1.12/5s, ~$2.24/10s | Per clip — higher quality |
+| Video clips (Veo 3.1) | ~$4.50/6s, ~$6.00/8s | Per clip — Google |
+| Brand images (Gemini) | ~$0.08 x clips x formats | brand-images mode |
 
-Show the breakdown and total. Example:
+Show breakdown and total.
 
-```
-Estimated cost breakdown:
-  Director:           $0.10
-  Asset sourcing:     $0.12
-  Storyboard (4x):    $0.20
-  Voiceover:          $0.50
-  Whisper:            $0.02
-  Kling v2.1 5s (4x): $1.96   (or v3: $4.48)
-  Brand images (4x3): $0.60
-  ─────────────────────────
-  Total (v2.1):       ~$3.50
-  Total (v3):         ~$6.02
-
-Recommendation: Run --storyboard-only first (~$0.42) to preview frames before committing to Kling.
-Note: v3 produces smoother transitions and better motion quality but costs ~2.3x more per clip.
-```
-
-ALWAYS recommend `--storyboard-only` first.
-
-### Step 7: Save and Instruct
+### Step 7: Save and Generate
 
 Create the project directory and save config.json:
 
@@ -256,48 +246,51 @@ Create the project directory and save config.json:
 projects/{slug}/
 ├── config.json
 └── assets/
-    └── reference/     (empty — for user's product photo)
+    └── reference/     (for user's reference photos)
 ```
 
-Use `fs-extra` via the pipeline's `new-project` scaffolder if available, or create manually.
+Then tell the user what reference images to provide for best results.
 
-Then tell the user:
+## Auto-Chain
 
+After saving config.json, don't stop. Flow into generation based on mode:
+
+**brand-images mode:**
+Run the pipeline immediately — cost is low (~$0.08/image). Show results with QA scores when done, then offer copy generation.
+
+**video/full mode:**
+Run `--dry-run` to trigger the Director (~$0.10, cached). Show the Director's creative plan:
 ```
-Config saved to projects/{slug}/config.json.
+Director's creative plan:
+  Visual style: {visualStyleSummary}
+  Lighting: {lightingSetup}
+  Color: {colorPalette}
 
-The pipeline will automatically source:
-  - Brand colors (from website / product photo / AI-generated)
-  - Style reference image (via Gemini or Pexels)
-  - Location reference (if scenes describe a setting)
-  - Background music (via Pixabay if PIXABAY_API_KEY is set)
+  Scene 1: {enrichedPrompt snippet}
+  Scene 2: {enrichedPrompt snippet}
+  ...
 
-For best results, provide:
-  - Product photo -> projects/{slug}/assets/reference/subject.jpg
-  - Logo (optional) -> projects/{slug}/assets/brand/logo.png
-
-If no product photo is uploaded, the pipeline generates frames from prompts
-using the configured imageProvider. Reference images improve quality but aren't required.
-
-Next steps:
-  Preview:  npm start -- --project {slug} --storyboard-only
-  Dry run:  npm start -- --project {slug} --dry-run
-  Or say "run step 2" to start the pipeline runner.
+  Hook: {suggestedHookText}
+  CTA: {suggestedCta}
 ```
+
+Then ask: "Preview frames? (~$X.XX for storyboard only, no video charges)"
+
+On approval, run `--storyboard-only` and show the frames.
+
+Never say "run step 2". Say "Generating your images now..." or "Want to preview the frames?"
 
 ## Templates
 
-Pre-built configs available in `projects/_templates/`. Use as a starting point when the user's intent matches:
+Pre-built configs in `projects/_templates/`. Use as a starting point when user's intent matches:
 
 | Template | Mode | Scenes | Best for |
 |---|---|---|---|
-| `product-launch` | brand-images | 5 images (hero, lifestyle, detail, flat-lay, CTA) | New product announcements |
-| `brand-story` | video | 6 clips (hook, origin, craft, product, testimonial, CTA) | Brand awareness |
-| `before-after` | brand-images | 4 images (before, transition, after, product hero) | Transformation results |
+| `product-launch` | brand-images | 5 images | New product announcements |
+| `brand-story` | video | 6 clips | Brand awareness |
+| `before-after` | brand-images | 4 images | Transformation results |
 
 To use: `npm run new-project -- --name {slug} --template {name} --brand "{Brand}"`
-
-The template provides structure. The Director enriches prompts for the specific brand. The user only needs to add reference images and edit the brief.
 
 ## Examples
 
