@@ -16,6 +16,7 @@ export type VideoProvider = 'kling-v2.1' | 'kling-v3' | 'veo-3.1' | 'veo-3.1-fas
 export type ImageProvider = 'gemini' | 'gpt-image';
 export type ClipOutputType = 'image' | 'video' | 'animation';
 export type ImageSource = 'generate' | 'original' | 'edit';
+export type MoodBoardEntry = string | { url: string; type?: 'style' | 'location' | 'product' | 'model' };
 
 // ─── Brand Shot Types (for brand-images mode) ───────────────────────────────
 
@@ -147,6 +148,10 @@ export interface VideoConfig {
   skipAutoRefs?: ('style' | 'location')[];
   /** Additional output formats to render. Clips generated once, Remotion renders each format. */
   outputFormats?: VideoFormat[];
+  /** Mood board image URLs. Downloads as style/location/product/model references before generation.
+   *  Strings default to 'style' type. Objects allow explicit categorization.
+   *  Supports direct image URLs and web pages with og:image meta tags (Pinterest pins, etc.). */
+  moodBoard?: MoodBoardEntry[];
 }
 
 // ─── Video Generation ───────────────────────────────────────────────────────

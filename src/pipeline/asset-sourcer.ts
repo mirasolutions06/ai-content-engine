@@ -4,7 +4,7 @@ import { GoogleGenAI } from '@google/genai';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../utils/logger.js';
 import { CostTracker } from '../utils/cost-tracker.js';
-import type { VideoConfig, BrandColors, AssetSourcingResult } from '../types/index.js';
+import type { VideoConfig, BrandColors, AssetSourcingResult, MoodBoardEntry } from '../types/index.js';
 
 // ── Auto-ref evaluation (Haiku vision) ──────────────────────────────────────
 
@@ -413,6 +413,166 @@ function extractLocationFromPrompts(config: VideoConfig): string | null {
 
 // ── Main export ──────────────────────────────────────────────────────────────
 
+// ── Mood board URL importer ──────────────────────────────────────────────────
+
+interface MoodBoardManifest {
+  [url: string]: string;
+}
+
+const IMG_EXTS_RE = /\.(?:jpg|jpeg|png|webp)$/i;
+
+/**
+ * Resolves a URL to a direct image URL.
+ * If the URL itself serves an image, returns it as-is.
+ * Otherwise fetches HTML and extracts the og:image meta tag.
+ */
+async function resolveImageUrl(url: string): Promise<string | null> {
+  try {
+    const headRes = await fetch(url, {
+      method: 'HEAD',
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+      signal: AbortSignal.timeout(10_000),
+      redirect: 'follow',
+    });
+    const contentType = headRes.headers.get('content-type') ?? '';
+    if (contentType.startsWith('image/')) return url;
+
+    // Fetch HTML and extract og:image
+    const htmlRes = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+      signal: AbortSignal.timeout(10_000),
+      redirect: 'follow',
+    });
+    if (!htmlRes.ok) return null;
+    const html = await htmlRes.text();
+
+    // Handle both attribute orderings: property then content, or content then property
+    const ogMatch = html.match(
+      /<meta[^>]+(?:property=["']og:image["'][^>]+content=["']([^"']+)["']|content=["']([^"']+)["'][^>]+property=["']og:image["'])/i,
+    );
+    return ogMatch?.[1] ?? ogMatch?.[2] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Downloads an image from a URL to disk. Returns true on success.
+ * Rejects images smaller than 10KB (likely thumbnails or tracking pixels).
+ */
+async function downloadMoodBoardImage(imageUrl: string, outputPath: string): Promise<boolean> {
+  try {
+    const res = await fetch(imageUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AssetSourcer/1.0)' },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!res.ok) return false;
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length < 10_000) return false;
+
+    await fs.ensureDir(path.dirname(outputPath));
+    await fs.writeFile(outputPath, buffer);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Imports mood board images from config.moodBoard URLs.
+ * Downloads to project root as {type}-{n}.jpg following the existing naming convention.
+ * Idempotent via cache/mood-board-manifest.json.
+ */
+async function importMoodBoard(
+  config: VideoConfig,
+  projectDir: string,
+  dryRun: boolean,
+): Promise<void> {
+  const entries = config.moodBoard;
+  if (!entries || entries.length === 0) return;
+
+  logger.step(`Mood board: processing ${entries.length} URL(s)...`);
+
+  // Load manifest for idempotency
+  const manifestPath = path.join(projectDir, 'cache', 'mood-board-manifest.json');
+  let manifest: MoodBoardManifest = {};
+  if (await fs.pathExists(manifestPath)) {
+    manifest = (await fs.readJson(manifestPath)) as MoodBoardManifest;
+  }
+
+  // Count existing files per type to pick next number
+  let files: string[] = [];
+  try { files = await fs.readdir(projectDir); } catch { /* empty */ }
+
+  const typeCounts: Record<string, number> = { style: 0, location: 0, product: 0, model: 0 };
+  for (const type of Object.keys(typeCounts)) {
+    const pattern = new RegExp(`^${type}(?:-(\\d+))?\\.(?:jpg|jpeg|png)$`, 'i');
+    for (const f of files) {
+      const m = pattern.exec(f);
+      if (m) {
+        const num = m[1] ? parseInt(m[1], 10) : 1;
+        typeCounts[type] = Math.max(typeCounts[type]!, num);
+      }
+    }
+  }
+
+  let imported = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const entry of entries) {
+    const url = typeof entry === 'string' ? entry : entry.url;
+    const refType = (typeof entry === 'string' ? 'style' : entry.type) ?? 'style';
+
+    // Idempotency check
+    const existingFile = manifest[url];
+    if (existingFile && (await fs.pathExists(path.join(projectDir, existingFile)))) {
+      logger.skip(`Mood board: ${existingFile} already exists`);
+      skipped++;
+      continue;
+    }
+
+    if (dryRun) {
+      logger.info(`[DRY RUN] Would download mood board ${refType} from: ${url.slice(0, 80)}...`);
+      continue;
+    }
+
+    const imageUrl = await resolveImageUrl(url);
+    if (!imageUrl) {
+      logger.warn(`Mood board: no image found at ${url.slice(0, 80)}`);
+      failed++;
+      continue;
+    }
+
+    typeCounts[refType] = (typeCounts[refType] ?? 0) + 1;
+    const num = typeCounts[refType]!;
+    const filename = `${refType}-${num}.jpg`;
+    const outputPath = path.join(projectDir, filename);
+
+    const ok = await downloadMoodBoardImage(imageUrl, outputPath);
+    if (!ok) {
+      logger.warn(`Mood board: failed to download ${url.slice(0, 80)}`);
+      failed++;
+      continue;
+    }
+
+    manifest[url] = filename;
+    imported++;
+    logger.success(`Mood board: saved ${filename}`);
+  }
+
+  // Save manifest
+  if (imported > 0) {
+    await fs.ensureDir(path.dirname(manifestPath));
+    await fs.outputJson(manifestPath, manifest, { spaces: 2 });
+  }
+
+  if (imported > 0 || failed > 0) {
+    logger.info(`Mood board: ${imported} imported, ${skipped} cached, ${failed} failed`);
+  }
+}
+
 /**
  * Auto-sources project assets: brand colors, style reference, location reference,
  * and background music. Runs AFTER config.json is loaded but BEFORE the Director step.
@@ -427,6 +587,9 @@ export async function sourceAssets(
   costTracker: CostTracker,
   dryRun: boolean,
 ): Promise<AssetSourcingResult> {
+  // Import mood board images first (before any other asset sourcing)
+  await importMoodBoard(config, projectDir, dryRun);
+
   logger.step('Asset sourcer: checking for auto-sourceable assets...');
 
   const assetsDir = projectDir;

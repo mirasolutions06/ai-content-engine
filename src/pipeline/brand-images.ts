@@ -372,9 +372,11 @@ export async function generateBrandImages(
     logger.info(`Using ${referenceImagePaths.length} reference image(s): ${referenceImagePaths.map((p) => path.basename(p)).join(', ')}`);
   }
 
-  // Split refs into model/product for QA comparison
+  // Split refs by type for QA comparison
   const modelRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('model'));
   const productRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('product'));
+  const styleRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('style'));
+  const locationRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('location'));
 
   const brandContext = await loadBrandContext(projectsRoot, projectName);
   const qaResults: ImageQAResult[] = [];
@@ -464,7 +466,7 @@ export async function generateBrandImages(
       // QA evaluation
       if (result) {
         const sceneLabel = multiClip ? `${clipIndex}-${format}` : format;
-        const qa = await evaluateImage(result, modelRefPaths, productRefPaths, sceneLabel);
+        const qa = await evaluateImage(result, modelRefPaths, productRefPaths, sceneLabel, styleRefPaths, locationRefPaths);
         if (qa) qaResults.push(qa);
       }
 

@@ -139,6 +139,7 @@ When the user gives feedback on specific scenes, translate it into pipeline oper
 
 - "Regenerate scenes 2 and 5": `npm start -- --project {name} --regenerate 2,5`
 - "Start fresh": delete `cache/` and `output/` directories, re-run
+- "Start completely fresh" (nuclear): also delete `assets/storyboard/`, `assets/`, `brand/`, and any root-level auto-generated ref images (`style.jpg`, `location.jpg`). Just deleting cache/ and output/ leaves contaminating files from previous runs.
 - "Resume": `npm start -- --project {name} --resume`
 
 ### Video clip feedback ("the video for scene 2 is bad")
@@ -196,6 +197,15 @@ Error: Gemini returned no image for scene 2
 → Or delete the frame and regenerate.
 ```
 
+**Remotion LowerThird crash:**
+```
+Error: inputRange must be strictly monotonically increasing but got [30,50,10,30]
+→ This happens on very short single-clip videos (5s animation).
+→ The CTA/hook timing arithmetic produces invalid ranges when total duration is very short.
+→ The raw clip at output/clips/scene-{N}.mp4 IS the deliverable.
+→ Remotion render can be skipped for single animation clips.
+```
+
 Never retry automatically. Diagnose first, suggest a fix, ask the user.
 
 ## Mode-Specific Behavior
@@ -211,6 +221,7 @@ No storyboard gate — images are cheap (~$0.08 each). Run directly via `npm sta
 - Reference images (`model-*.jpg`, `product-*.jpg`) are the single biggest quality lever
 - Per-clip `refs` field: when multiple products exist, assign specific refs per scene (`"refs": ["product-1.jpg"]`) instead of sending all refs to every generation — prevents Gemini from conflating different products
 - Director enriches prompts — config prompts should be evocative, not hyper-specific
+- `moodBoard` URLs: paste Pinterest pins or image URLs to auto-download as style/location refs before generation
 - Scene-1 anchoring: first image becomes style reference for all subsequent images
 
 ### video mode — all image outputType
@@ -224,6 +235,39 @@ Dry-run shows which clips are images vs videos. Image clips resolve in Phase 1 (
 
 ### full mode
 Brand images first (cheap), then full video workflow. Dry run shows both costs.
+
+### Animation from Existing Image
+
+When the user wants to animate an already-generated image (e.g. "animate image 2"), create a separate project:
+
+```json
+{
+  "mode": "video",
+  "format": "ad-1x1",
+  "captions": false,
+  "music": false,
+  "hookText": "",
+  "videoProvider": "kling-v2.1",
+  "skipAutoRefs": ["style", "location"],
+  "clips": [{
+    "prompt": "Subtle gentle motion. Model walks slowly forward, fabric shifts naturally.",
+    "imageSource": "original",
+    "sourceImage": "../{source-project}/output/images/{filename}",
+    "outputType": "animation",
+    "duration": 5
+  }]
+}
+```
+
+**Key fields:**
+- `imageSource: "original"` + `sourceImage` — copies the existing image, skips ALL generation (no Gemini, no asset sourcing)
+- Do NOT use `imageReference` — it doesn't prevent storyboard generation, just adds a ref
+- `skipAutoRefs` — prevents downloading style/location refs that aren't needed
+- `captions: false`, `music: false`, `hookText: ""` — strip everything, just animate
+
+**Cost:** ~$0.59 total (Director ~$0.10 cached + Kling i2v ~$0.49). No gates needed.
+
+**Output:** Raw clip at `output/clips/scene-1.mp4`. Remotion may crash on short single-clip videos (see errors below) — the raw clip IS the deliverable.
 
 ## Partial Re-runs
 

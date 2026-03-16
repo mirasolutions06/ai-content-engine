@@ -162,15 +162,28 @@ Named files in the project directory get labeled in the Gemini prompt:
 
 More refs = better consistency. Nike used 6 refs and got campaign-grade output. Ama Shea used zero refs and still scored 4.5-5.0/5 with good prompts.
 
-**Per-clip `refs` (smart reference selection):**
-When a project has many product references, send only the relevant ones per scene. Without `refs`, ALL project references are sent to Gemini for every image — confusing the model when products differ across scenes.
+**Per-clip `refs` (smart reference selection) — CRITICAL:**
+ALWAYS assign per-clip `refs` when a project has model, product, style, AND location refs. Without them, every ref floods every generation — degrading quality. This has caused issues repeatedly across multiple projects.
 ```json
 {
   "prompt": "Hero shot of shea butter...",
-  "refs": ["product-1.jpg"]
+  "refs": ["product-1.jpg", "model-1.jpg"]
 }
 ```
-Use this when the campaign features multiple distinct products. Scene 1 (overview) might use all refs; individual hero shots should use only the matching product ref.
+Scene 1 (overview) might use all refs; individual hero shots should use only the matching product ref. Detail crops might use only the product ref. Assign deliberately.
+
+**Prompts must match the provided references.** If user provides a `location-1.jpg` of an English manor, the prompt should describe that setting — NOT a generic studio. If a `model-1.jpg` shows a specific person, describe that person. Never default to "studio" when environmental refs exist.
+
+**`moodBoard` field (Pinterest / URL mood board):**
+Paste image URLs (Pinterest pins, direct image URLs) to download as style references. Downloaded before generation as `style-1.jpg`, `style-2.jpg` etc. Strings default to `style` type; objects allow explicit categorization.
+```json
+"moodBoard": [
+  "https://i.pinimg.com/originals/ab/cd/image.jpg",
+  "https://www.pinterest.com/pin/123456/",
+  { "url": "https://example.com/location.jpg", "type": "location" }
+]
+```
+Combine with per-clip `refs` to assign mood board images to specific scenes: `"refs": ["product-1.jpg", "style-2.jpg"]`.
 
 **Prompt style for brand-images:**
 Write LOOSE, evocative prompts — not hyper-specific descriptions. The Director enriches them. Over-specifying constrains Gemini.
@@ -188,6 +201,7 @@ ALL scenes must share the SAME:
 - **Background/surface** — pick ONE setting and repeat it
 - **Color temperature** — pick ONE palette and keep it consistent
 - **Subject** — the same product/person in EVERY scene
+- **Match refs** — if the user provided a location ref (outdoor/architectural), prompts should use that environment. If they provided a model ref, describe that person. Never default to "studio" when environmental refs exist.
 
 #### Progressive Reveal Shot Framework
 

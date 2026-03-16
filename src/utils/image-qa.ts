@@ -21,9 +21,9 @@ Return ONLY a JSON object with these fields — no markdown fences, no explanati
 Scoring guide:
 - modelAccuracy: Does the person match the model reference? Same face, skin tone, hair, features. 5 = identical, 3 = similar but differences, 1 = different person. Score 5 if no model reference was provided.
 - productAccuracy: Does the product match the product reference? Same shape, color, label, material. 5 = exact match, 3 = similar, 1 = wrong product or phantom product invented. Score 5 if no product reference was provided.
-- composition: Professional framing? Single image (no collage/grid)? Good use of space? 5 = editorial quality, 3 = acceptable, 1 = poor framing or collage.
+- composition: Professional framing? Single image (no collage/grid)? Good use of space? 5 = editorial quality, 3 = acceptable, 1 = poor framing or collage. When STYLE or LOCATION references are provided, the image is intended as editorial/lifestyle — outdoor settings, environmental context, and non-studio backgrounds are EXPECTED and should NOT be penalized. Judge composition by editorial photography standards, not studio product photography.
 - artifacts: AI generation quality. 5 = photorealistic, no issues. 3 = minor artifacts. 1 = severe issues (extra fingers, floating limbs, plastic skin, text/watermarks).
-- issues: List specific problems found. Empty array if none.`;
+- issues: List specific problems found. Empty array if none. Do NOT flag outdoor/environmental settings as issues when style or location references are provided — those settings are intentional.`;
 
 async function encodeImage(imagePath: string): Promise<Anthropic.ImageBlockParam | null> {
   try {
@@ -50,6 +50,8 @@ export async function evaluateImage(
   modelRefPaths: string[],
   productRefPaths: string[],
   sceneLabel: string,
+  styleRefPaths: string[] = [],
+  locationRefPaths: string[] = [],
 ): Promise<ImageQAResult | null> {
   const apiKey = process.env['ANTHROPIC_API_KEY'];
   if (!apiKey) return null;
@@ -80,6 +82,28 @@ export async function evaluateImage(
       }
     }
 
+    // Add style references — gives QA context about intended mood/aesthetic
+    for (const refPath of styleRefPaths) {
+      const encoded = await encodeImage(refPath);
+      if (encoded) {
+        contentParts.push(
+          { type: 'text', text: `[STYLE REFERENCE — "${path.basename(refPath)}" — this shows the intended mood/aesthetic]` },
+          encoded,
+        );
+      }
+    }
+
+    // Add location references — gives QA context about intended environment
+    for (const refPath of locationRefPaths) {
+      const encoded = await encodeImage(refPath);
+      if (encoded) {
+        contentParts.push(
+          { type: 'text', text: `[LOCATION REFERENCE — "${path.basename(refPath)}" — this shows the intended setting/environment]` },
+          encoded,
+        );
+      }
+    }
+
     // Add the generated image
     const generatedEncoded = await encodeImage(generatedImagePath);
     if (!generatedEncoded) return null;
@@ -89,9 +113,10 @@ export async function evaluateImage(
       generatedEncoded,
     );
 
+    const hasLifestyleContext = styleRefPaths.length > 0 || locationRefPaths.length > 0;
     contentParts.push({
       type: 'text',
-      text: `Score this generated image against the reference images above. ${modelRefPaths.length === 0 ? 'No model reference provided — score modelAccuracy as 5.' : ''} ${productRefPaths.length === 0 ? 'No product reference provided — score productAccuracy as 5.' : ''}`,
+      text: `Score this generated image against the reference images above. ${modelRefPaths.length === 0 ? 'No model reference provided — score modelAccuracy as 5.' : ''} ${productRefPaths.length === 0 ? 'No product reference provided — score productAccuracy as 5.' : ''} ${hasLifestyleContext ? 'Style/location references are provided — this is editorial/lifestyle photography. Outdoor and environmental settings are intentional and expected.' : ''}`,
     });
 
     const response = await client.messages.create({
