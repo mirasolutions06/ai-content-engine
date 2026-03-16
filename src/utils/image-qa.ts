@@ -6,7 +6,7 @@ import type { ImageQAResult } from '../types/index.js';
 
 const QA_MODEL = 'claude-haiku-4-5-20251001';
 
-const QA_SYSTEM_PROMPT = `You are a quality-control reviewer for AI-generated commercial photography. You score images against reference photos and professional standards.
+const QA_SYSTEM_PROMPT = `You are a quality-control reviewer for AI-generated commercial photography. You score images against reference photos, professional standards, AND the creative intent of each scene.
 
 Return ONLY a JSON object with these fields — no markdown fences, no explanation:
 
@@ -15,14 +15,16 @@ Return ONLY a JSON object with these fields — no markdown fences, no explanati
   "productAccuracy": <1-5>,
   "composition": <1-5>,
   "artifacts": <1-5>,
+  "editorialImpact": <1-5>,
   "issues": ["<issue 1>", "<issue 2>"]
 }
 
 Scoring guide:
-- modelAccuracy: Does the person match the model reference? Same face, skin tone, hair, features. 5 = identical, 3 = similar but differences, 1 = different person. Score 5 if no model reference was provided.
-- productAccuracy: Does the product match the product reference? Same shape, color, label, material. 5 = exact match, 3 = similar, 1 = wrong product or phantom product invented. Score 5 if no product reference was provided.
+- modelAccuracy: Does the person match the model reference? Same face, skin tone, hair, features. 5 = identical, 3 = similar but differences, 1 = different person. Score 5 if no model reference was provided. IMPORTANT: For intentional detail/close-up shots where the face is not visible (fabric close-ups, waistband details, flat-lays), score based on visible attributes only (skin tone, body type). Do NOT penalize for face not being visible when the scene intent is a detail or product shot.
+- productAccuracy: Does the product match the product reference? Same shape, color, fabric, material. 5 = exact match, 3 = similar, 1 = wrong product. Score 5 if no product reference was provided. IMPORTANT: If the scene intent describes showing only PART of the product (e.g. "waistband detail", "fabric close-up"), score based on what IS shown — do not penalize for not showing the full outfit.
 - composition: Professional framing? Single image (no collage/grid)? Good use of space? 5 = editorial quality, 3 = acceptable, 1 = poor framing or collage. When STYLE or LOCATION references are provided, the image is intended as editorial/lifestyle — outdoor settings, environmental context, and non-studio backgrounds are EXPECTED and should NOT be penalized. Judge composition by editorial photography standards, not studio product photography.
 - artifacts: AI generation quality. 5 = photorealistic, no issues. 3 = minor artifacts. 1 = severe issues (extra fingers, floating limbs, plastic skin, text/watermarks).
+- editorialImpact: Would this image stop someone scrolling on social media? Does it have attitude, mood, visual drama? 5 = scroll-stopping, would perform well on TikTok/Instagram. 4 = strong editorial quality. 3 = competent but generic/safe. 2 = stock photography feel. 1 = boring, flat, no visual interest. This is about CREATIVE IMPACT, not technical accuracy.
 - issues: List specific problems found. Empty array if none. Do NOT flag outdoor/environmental settings as issues when style or location references are provided — those settings are intentional.`;
 
 async function encodeImage(imagePath: string): Promise<Anthropic.ImageBlockParam | null> {
@@ -52,6 +54,7 @@ export async function evaluateImage(
   sceneLabel: string,
   styleRefPaths: string[] = [],
   locationRefPaths: string[] = [],
+  sceneIntent?: string,
 ): Promise<ImageQAResult | null> {
   const apiKey = process.env['ANTHROPIC_API_KEY'];
   if (!apiKey) return null;
@@ -114,9 +117,10 @@ export async function evaluateImage(
     );
 
     const hasLifestyleContext = styleRefPaths.length > 0 || locationRefPaths.length > 0;
+    const intentContext = sceneIntent ? `\n\nSCENE INTENT: "${sceneIntent}" — Judge whether the image successfully delivers on this creative brief. Detail shots, close-ups, and partial views are intentional when described in the intent.` : '';
     contentParts.push({
       type: 'text',
-      text: `Score this generated image against the reference images above. ${modelRefPaths.length === 0 ? 'No model reference provided — score modelAccuracy as 5.' : ''} ${productRefPaths.length === 0 ? 'No product reference provided — score productAccuracy as 5.' : ''} ${hasLifestyleContext ? 'Style/location references are provided — this is editorial/lifestyle photography. Outdoor and environmental settings are intentional and expected.' : ''}`,
+      text: `Score this generated image against the reference images above.${intentContext} ${modelRefPaths.length === 0 ? 'No model reference provided — score modelAccuracy as 5.' : ''} ${productRefPaths.length === 0 ? 'No product reference provided — score productAccuracy as 5.' : ''} ${hasLifestyleContext ? 'Style/location references are provided — this is editorial/lifestyle photography. Outdoor and environmental settings are intentional and expected.' : ''}`,
     });
 
     const response = await client.messages.create({
@@ -135,10 +139,12 @@ export async function evaluateImage(
       productAccuracy: number;
       composition: number;
       artifacts: number;
+      editorialImpact?: number;
       issues: string[];
     };
 
-    const score = (parsed.modelAccuracy + parsed.productAccuracy + parsed.composition + parsed.artifacts) / 4;
+    const editorial = parsed.editorialImpact ?? 3;
+    const score = (parsed.modelAccuracy + parsed.productAccuracy + parsed.composition + parsed.artifacts + editorial) / 5;
     const result: ImageQAResult = {
       scene: sceneLabel,
       score: Math.round(score * 10) / 10,
@@ -146,12 +152,13 @@ export async function evaluateImage(
       productAccuracy: parsed.productAccuracy,
       composition: parsed.composition,
       artifacts: parsed.artifacts,
+      editorialImpact: editorial,
       issues: parsed.issues ?? [],
       pass: score >= 3.0,
     };
 
     // Log result
-    const scoreStr = `${result.score}/5 (model: ${result.modelAccuracy}, product: ${result.productAccuracy}, composition: ${result.composition}, artifacts: ${result.artifacts})`;
+    const scoreStr = `${result.score}/5 (model: ${result.modelAccuracy}, product: ${result.productAccuracy}, composition: ${result.composition}, artifacts: ${result.artifacts}, impact: ${editorial})`;
     if (result.pass) {
       logger.info(`  QA: ${scoreStr}`);
     } else {

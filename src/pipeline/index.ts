@@ -20,6 +20,7 @@ import { generateImage } from './image-router.js';
 import { editImage, resolveSourceImage } from './image-editor.js';
 import { compositeOverlay } from './image-compositor.js';
 import { analyzeReferenceVideos } from './video-analyzer.js';
+import { processVideoRef } from './video-ref.js';
 import { getFormatMeta } from '../remotion/helpers/timing.js';
 import { generateBrandImages } from './brand-images.js';
 import { evaluateImage, saveQAResults } from '../utils/image-qa.js';
@@ -217,13 +218,23 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
   // ── Asset sourcing (before Director so auto-sourced files are available) ──
   await sourceAssets(projectName, config, projectDir, costTracker, dryRun);
 
+  // ── Video reference download + key frame extraction ─────────────────────
+  await processVideoRef(config, projectDir, dryRun);
+
+  // ── Video reference analysis (for both brand-images and video modes) ────
+  const videoAnalysis = await analyzeReferenceVideos(PROJECTS_ROOT, projectName);
+  if (videoAnalysis !== null) {
+    costTracker.logStep('gemini-video-analysis', false);
+    logger.info(`Video reference: ${videoAnalysis.mood} style, ${videoAnalysis.pacing} pacing`);
+  }
+
   // ── Brand-images mode: generate multi-format images only ──────────────
   if (mode === 'brand-images') {
     // Run Director for brand-images too — enriches prompts and writes brand-context.json
     // for downstream skills (Copy Engine). Cheap (~$0.10) and cached.
     const loader = new AssetLoader(PROJECTS_ROOT, projectName);
     const assets = await loader.load();
-    const directorPlan = await runDirector(config, assets, PROJECTS_ROOT, projectName);
+    const directorPlan = await runDirector(config, assets, PROJECTS_ROOT, projectName, videoAnalysis ?? undefined);
     costTracker.logStep('director', directorPlan !== null);
 
     if (dryRun) {
@@ -338,13 +349,6 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
     `│  Mode:    ${(dryRun ? 'DRY RUN' : mode).padEnd(43)}│\n` +
     `└────────────────────────────────────────────────────┘`,
   );
-
-  // ── Video reference analysis (before Director for context enrichment) ──
-  const videoAnalysis = await analyzeReferenceVideos(PROJECTS_ROOT, projectName);
-  if (videoAnalysis !== null) {
-    costTracker.logStep('gemini-video-analysis', false);
-    logger.info(`Video reference: ${videoAnalysis.mood} style, ${videoAnalysis.pacing} pacing`);
-  }
 
   // ── Director step (runs even in dry-run — cheap and cached) ────────────
   const directorPlan = await runDirector(config, assets, PROJECTS_ROOT, projectName, videoAnalysis ?? undefined);

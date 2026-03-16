@@ -82,7 +82,7 @@ function buildBrandPrompt(
 
 // ── Reference image discovery ────────────────────────────────────────────────
 
-const REF_TYPES = ['product', 'model', 'style', 'location'] as const;
+const REF_TYPES = ['product', 'model', 'style', 'location', 'videoref'] as const;
 const IMG_EXTS = ['jpg', 'jpeg', 'png'] as const;
 
 /**
@@ -218,6 +218,8 @@ async function generateBrandImage(
         parts.push({ text: `[STYLE REFERENCE — "${basename}". Match this visual mood and aesthetic.]` });
       } else if (basename.startsWith('location')) {
         parts.push({ text: `[LOCATION REFERENCE — "${basename}". Use this environment/background.]` });
+      } else if (basename.startsWith('videoref')) {
+        parts.push({ text: `[VIDEO STYLE REFERENCE — "${basename}". This frame is from a reference video. Match its visual style, lighting, color grade, and composition.]` });
       }
       parts.push({ inlineData: { mimeType, data: buffer.toString('base64') } });
     }
@@ -466,7 +468,7 @@ export async function generateBrandImages(
       // QA evaluation
       if (result) {
         const sceneLabel = multiClip ? `${clipIndex}-${format}` : format;
-        const qa = await evaluateImage(result, modelRefPaths, productRefPaths, sceneLabel, styleRefPaths, locationRefPaths);
+        const qa = await evaluateImage(result, modelRefPaths, productRefPaths, sceneLabel, styleRefPaths, locationRefPaths, clipPrompt);
         if (qa) qaResults.push(qa);
       }
 

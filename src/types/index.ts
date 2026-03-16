@@ -152,6 +152,9 @@ export interface VideoConfig {
    *  Strings default to 'style' type. Objects allow explicit categorization.
    *  Supports direct image URLs and web pages with og:image meta tags (Pinterest pins, etc.). */
   moodBoard?: MoodBoardEntry[];
+  /** Reference video URL or local path. Analyzed for style/pacing/mood; key frames extracted as style refs.
+   *  Supports direct .mp4/.mov URLs, local paths, and social media URLs (TikTok/IG/YouTube) via yt-dlp. */
+  videoRef?: string;
 }
 
 // ─── Video Generation ───────────────────────────────────────────────────────
@@ -442,6 +445,7 @@ export interface ImageQAResult {
   productAccuracy: number;
   composition: number;
   artifacts: number;
+  editorialImpact?: number;
   issues: string[];
   pass: boolean;
 }

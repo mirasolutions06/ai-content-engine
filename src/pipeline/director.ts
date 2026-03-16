@@ -148,7 +148,11 @@ ENRICHED PROMPT RULES
 
 14. variationAngles: for EACH clip, suggest 3 short alternative creative directions (max 40 chars each). These are used for batch storyboard generation to give the user visual options. Examples: "low angle dramatic upward perspective", "tighter macro crop on texture detail", "warmer golden hour color temperature", "overhead top-down flat lay composition". Each angle should produce a meaningfully different image while maintaining the same subject, lighting direction, and background.
 
-15. If the brief includes a "referenceVideoAnalysis" field, use it to DERIVE your style decisions. The analysis describes a real reference video the user wants to match. Use its visualStyle for your lightingSetup and visualStyleSummary. Use its pacing for your clip pace values. Use its colorGrading for your colorPalette. Use its composition for your shot types. Use its mood to set the overall tone. The reference video is the creative target — match it.
+15. If the brief includes a "referenceVideoAnalysis" field, use it to DERIVE your style decisions — but BLEND with the user's own image references:
+    - VIDEO ANALYSIS drives: camera moves, pacing, transitions, color grade, lighting style, overall mood. The reference video is the MOTION and STYLE target.
+    - USER IMAGE REFS (product-*, model-*) drive: the actual subject/content. These are what appears in the video — the product, the person, the brand.
+    - VIDEO REF FRAMES (videoref-*) are supplementary style references extracted from the reference video. Use them to reinforce the visual aesthetic.
+    - The goal: "looks like MY product, moves like THEIR video." Match the reference video's cinematography and energy while featuring the user's actual products/models.
 
 16. When writing enrichedPrompt, apply the relevant prompting framework:
     - UGC / talking heads → use realism techniques (natural skin, window light)
@@ -191,18 +195,21 @@ OUTPUT FORMAT — return ONLY this JSON object, nothing else:
 CRITICAL: ONE-SHOOT VISUAL CONSISTENCY
 ═══════════════════════════════════════════════════════════════
 
-The #1 problem with AI-generated images is inconsistency. Your job is to make every image feel like it came from the SAME photo shoot.
+The #1 problem with AI-generated images is inconsistency. Your job is to make every image feel like it came from the SAME visual system.
 
 MANDATORY consistency rules — every enrichedPrompt MUST include:
-A) The SAME lighting direction and quality (from lightingSetup)
-B) The SAME background/environment (from backgroundDescription)
-C) The SAME color temperature (from colorPalette)
-D) The SAME hero subject/product at different distances and angles
+A) The SAME lighting DIRECTION and QUALITY (from lightingSetup). The key light always comes from the same side with the same color temperature.
+B) The SAME color temperature and palette (from colorPalette). No sudden shifts from warm to cool.
+C) The SAME hero subject/product at different distances and angles.
+D) BACKGROUND rule depends on the brief:
+   - PRODUCT PHOTOGRAPHY (skincare, food, objects on surfaces): SAME background/surface for ALL images. This is critical for product consistency.
+   - FASHION / LIFESTYLE / EDITORIAL (clothing, athleisure, person-focused campaigns): Environments MAY vary between images IF the brief describes multiple locations. What must stay consistent is the MATERIAL PALETTE (concrete, industrial, natural textures) and the LIGHTING SYSTEM. Different rooms/settings that share the same visual language = cohesive campaign. Same gym repeated 5 times = boring catalog.
 
 What SHOULD change between images:
 - Camera distance: extreme close-up → close-up → medium → wide → detail
 - Focus point: texture detail → full product → context/environment
 - Subject state: raw ingredient → product hero → in-use → final beauty shot
+- For fashion/lifestyle: environment can shift (corridor → locker room → outdoor → apartment) while maintaining visual system consistency
 
 ═══════════════════════════════════════════════════════════════
 ENRICHED PROMPT RULES
@@ -213,7 +220,8 @@ ENRICHED PROMPT RULES
 2. enrichedPrompt MUST be a vivid image description optimized for AI image generation. Maximum 400 characters. Rules:
    - Start by describing exactly what is in frame — the subject at a specific distance
    - Include the GLOBAL lighting setup (same direction, same color temperature)
-   - Include the GLOBAL background (same surface/environment, varying blur)
+   - For product photography: include the GLOBAL background (same surface/environment, varying blur)
+   - For fashion/lifestyle: describe THIS scene's specific environment while maintaining the material palette and lighting system
    - Specify depth of field (e.g. "shallow depth of field, f/1.8 bokeh background")
    - Use the GLOBAL colorPalette (descriptive words ONLY, NEVER hex codes)
    - Write as a natural scene description, not a keyword list
@@ -240,7 +248,13 @@ ENRICHED PROMPT RULES
    - "flat-lay": Overhead editorial arrangement. Product with complementary props on a surface.
    - "texture-detail": Extreme close-up on material, texture, or surface quality. Sensory hook.
    - "portrait": Person-focused with product secondary. Face, expression, beauty.
-   Write the enrichedPrompt as if the user had written a detailed prompt — natural, vivid, specific to the brand.`;
+   Write the enrichedPrompt as if the user had written a detailed prompt — natural, vivid, specific to the brand.
+
+9. If the brief includes a "referenceVideoAnalysis" field, BLEND video style with the user's image references:
+   - VIDEO ANALYSIS drives: color grade, lighting style, composition approach, mood. Match the reference video's visual aesthetic.
+   - USER IMAGE REFS (product-*, model-*) drive: the actual subject/content appearing in images.
+   - VIDEO REF FRAMES (videoref-*) are key frames from the reference video — use as supplementary style references.
+   - Goal: "my products, their visual style." Match the reference video's look while featuring the user's actual products/models.`;
 
 let BEST_PRACTICES_LOADED = '';
 
