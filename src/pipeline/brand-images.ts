@@ -106,8 +106,8 @@ async function findReferenceImages(
   }
 
   for (const type of REF_TYPES) {
-    // Match: product.jpg, product-1.jpg, product-2.jpg, etc.
-    const pattern = new RegExp(`^${type}(?:-(\\d+))?\\.(?:${IMG_EXTS.join('|')})$`, 'i');
+    // Match: product.jpg, product-1.jpg, product-2.jpg, model-sheet.jpg, model-body.jpg, etc.
+    const pattern = new RegExp(`^${type}(?:-(?:\\d+|sheet|body))?\\.(?:${IMG_EXTS.join('|')})$`, 'i');
     const matches = files
       .filter((f) => pattern.test(f))
       .sort(); // alphabetical → product.jpg before product-1.jpg
@@ -189,13 +189,17 @@ async function generateBrandImage(
     type TextPart = { text: string };
     const parts: Array<TextPart | InlineDataPart> = [];
 
-    // Include reference images with INTERLEAVED labels — model first (most important for face consistency)
-    // Sort: model refs first, then product, then style, then location
-    const sortOrder: Record<string, number> = { model: 0, product: 1, style: 2, location: 3 };
+    // Include reference images with INTERLEAVED labels — model sheets first, then model, product, style, location
+    const typeSortOrder: Record<string, number> = { model: 0, product: 1, style: 2, location: 3 };
     const sortedRefs = [...referenceImagePaths].sort((a, b) => {
-      const aType = path.basename(a).split(/[-.]/, 1)[0] ?? '';
-      const bType = path.basename(b).split(/[-.]/, 1)[0] ?? '';
-      return (sortOrder[aType] ?? 9) - (sortOrder[bType] ?? 9);
+      const aBase = path.basename(a, path.extname(a));
+      const bBase = path.basename(b, path.extname(b));
+      // Model sheets get -1 priority (before regular model refs)
+      const aOrder = (aBase === 'model-sheet' || aBase === 'model-body') ? -1
+        : (typeSortOrder[aBase.split(/[-.]/, 1)[0] ?? ''] ?? 9);
+      const bOrder = (bBase === 'model-sheet' || bBase === 'model-body') ? -1
+        : (typeSortOrder[bBase.split(/[-.]/, 1)[0] ?? ''] ?? 9);
+      return aOrder - bOrder;
     });
 
     let hasModelRef = false;
@@ -208,7 +212,13 @@ async function generateBrandImage(
       const basename = path.basename(refPath, path.extname(refPath));
 
       // Interleave: text label BEFORE each image so Gemini knows what it's looking at
-      if (basename.startsWith('model')) {
+      if (basename === 'model-sheet') {
+        parts.push({ text: '[MODEL SHEET — multi-angle FACE reference. This person MUST appear identical in every generated image. Match face, features, skin tone, hair from ALL angles shown.]' });
+        hasModelRef = true;
+      } else if (basename === 'model-body') {
+        parts.push({ text: '[MODEL BODY REFERENCE — full-body proportion reference. Match this person\'s build, height, and body type. Ignore the clothing — dress them as described in the scene prompt.]' });
+        hasModelRef = true;
+      } else if (basename.startsWith('model')) {
         parts.push({ text: `[MODEL/PERSON REFERENCE — "${basename}". Use this person's EXACT face, features, skin tone, hair, and body. This must be recognizably the SAME person in every image.]` });
         hasModelRef = true;
       } else if (basename.startsWith('product')) {
@@ -448,8 +458,16 @@ export async function generateBrandImages(
         );
       } else {
         // Per-clip ref filtering: if clip.refs is set, only send those specific references
+        // Model sheets auto-included when clip refs any model-* image (i.e. clip features a model)
+        const clipHasModel = clip.refs?.some((r) => r.startsWith('model'));
         const clipRefs = clip.refs
-          ? referenceImagePaths.filter((p) => clip.refs!.includes(path.basename(p)))
+          ? referenceImagePaths.filter((p) => {
+              if (clipHasModel) {
+                const base = path.basename(p, path.extname(p));
+                if (base === 'model-sheet' || base === 'model-body') return true;
+              }
+              return clip.refs!.includes(path.basename(p));
+            })
           : referenceImagePaths;
         result = await generateBrandImage(
           clipIndex, clipPrompt, brand, brief, format, outputPath,

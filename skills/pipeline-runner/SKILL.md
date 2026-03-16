@@ -216,6 +216,7 @@ No storyboard gate — images are cheap (~$0.08 each). Run directly via `npm sta
 **QA scoring:** Haiku vision scores each image on model accuracy, product accuracy, composition, and artifacts (1-5). Results saved to `cache/qa-results.json`. Scores below 3.0 get a warning.
 
 **Key quality factors:**
+- `modelSheet: true` generates multi-angle face sheet + body sheet from a model ref — dramatically improves identity consistency
 - `products` field prevents phantom product invention
 - `skipAutoRefs` avoids low-quality auto-generated references
 - Reference images (`model-*.jpg`, `product-*.jpg`) are the single biggest quality lever
@@ -278,6 +279,8 @@ The pipeline is fully idempotent — it skips any step whose output file exists.
 | One storyboard frame | `assets/storyboard/scene-{N}.png` or `.jpg` | `--storyboard-only` | ~$0.05 |
 | One video clip (v2.1) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$0.49-0.90 |
 | One video clip (v3) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$1.12-2.24 |
+| One video clip (Sora 720p) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$1.20-6.00 |
+| One video clip (Sora 1080p) | `output/clips/scene-{N}.mp4` | `--json-output` | ~$2.00-10.00 |
 | Voiceover | Nothing — hash auto-detects script change | `--json-output` | ~$0.50 |
 | Director plan | `cache/director-plan.json` | `--json-output` | ~$0.10 |
 | Everything | `cache/` and `output/` dirs | `--json-output` | Full cost |
@@ -307,6 +310,29 @@ The pipeline is fully idempotent — it skips any step whose output file exists.
 4. `skipAutoRefs` if you don't want auto-sourced refs
 5. Single clear moment per prompt with lighting/mood cues
 6. No text/logo requests in prompts
+
+## Sora 2 Video
+
+**Provider:** `videoProvider: "sora-2"` (1080p) or `"sora-2-720p"` (cheaper). Uses `FAL_KEY` — same API key as Kling.
+
+**Key advantages over Kling:**
+- **Native audio** — synchronized dialogue, ambient sounds, environmental audio from the same prompt
+- **Up to 20s clips** (vs Kling's 10s max)
+- **Flexible durations** — 4, 8, 12, 16, or 20 seconds
+- **Rich prompt handling** — thrives on atmospheric descriptions like Veo
+
+**Cost:** $0.50/s (1080p) or $0.30/s (720p). A 4s clip at 720p = $1.20, comparable to Kling v3.
+
+**When to use Sora:**
+- Need native audio in the video (dialogue, ambient sounds)
+- Clips longer than 10s
+- Want cinematic quality between Kling v3 and Veo pricing
+- Brand animations from existing stills
+
+**What doesn't work:**
+- No `negative_prompt` support — prompt engineering is the only control
+- No `cfg_scale` — can't fine-tune image fidelity vs motion tradeoff
+- 1:1 aspect ratio not natively supported (maps to `auto`)
 
 ## Auto-Chain
 

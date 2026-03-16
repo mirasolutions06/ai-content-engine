@@ -120,7 +120,7 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
   "musicVolume": 0.15,
   "imageFormats": ["story", "square", "landscape"],
   "imageProvider": "gemini | gpt-image",
-  "videoProvider": "kling-v2.1 | kling-v3 | veo-3.1 | veo-3.1-fast",
+  "videoProvider": "kling-v2.1 | kling-v3 | veo-3.1 | veo-3.1-fast | sora-2 | sora-2-720p",
   "colorUnify": false,
   "colorUnifyOpacity": 0.06
 }
@@ -134,7 +134,7 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
 - `captionPosition`: omit to use default `"bottom"`
 - `captionTheme`: omit to let the Director auto-select based on brand tone. Options: `bold` (TikTok pill-style), `editorial` (clean luxury underline), `minimal` (simple opacity)
 - `imageProvider`: omit for default `"gemini"`. Set `"gpt-image"` for GPT Image 1 (~$0.04-0.08/frame, more literal style).
-- `videoProvider`: omit for default `"kling-v2.1"`. Options: `"kling-v3"` (better motion, ~2.3x more), `"veo-3.1"` (Google, 4-8s clips), `"veo-3.1-fast"` (cheaper Veo).
+- `videoProvider`: omit for default `"kling-v2.1"`. Options: `"kling-v3"` (better motion, ~2.3x more), `"veo-3.1"` (Google, 4-8s clips), `"veo-3.1-fast"` (cheaper Veo), `"sora-2"` (1080p, $0.50/s, native audio, up to 20s), `"sora-2-720p"` (720p, $0.30/s, cheaper Sora).
 - `outputType` per clip: omit for default based on mode
 - `duration` per clip: omit for default `5`. Any number 1-15.
 - `colorUnify`: omit for default `false`. Set `true` to apply subtle brand-colored overlay across clips.
@@ -153,9 +153,20 @@ Skip auto-generated references when not needed.
 "skipAutoRefs": ["style", "location"]
 ```
 
+**`modelSheet` field (multi-angle model reference):**
+When a project has a model ref (`model-1.jpg`), setting `modelSheet: true` auto-generates two reference sheets via Gemini before image generation:
+- `model-sheet.jpg` — 5 headshot angles (front, 3/4 left, 3/4 right, profile, over-shoulder)
+- `model-body.jpg` — 2 full-body poses in plain neutral clothing
+Cost: ~$0.16 (2 Gemini calls). Dramatically improves face/identity consistency.
+```json
+"modelSheet": true
+```
+Or specify a specific source file: `"modelSheet": "model-2.jpg"`
+
 **Reference images (the biggest quality lever):**
 Named files in the project directory get labeled in the Gemini prompt:
 - `model-1.jpg`, `model-2.jpg` — person's face/features
+- `model-sheet.jpg`, `model-body.jpg` — multi-angle model sheets (auto-generated via `modelSheet`)
 - `product-1.jpg`, `product-2.jpg` — exact product appearance
 - `style.jpg` — visual mood reference
 - `location.jpg` — environment reference
@@ -232,6 +243,8 @@ Structure scenes as a single continuous photo shoot where only the camera distan
 - **Keep scenes compositionally independent**: Each clip from its own frame, standalone moment.
 - **Avoid complex multi-person scenes**: Single subject best.
 - **For beauty/portrait**: Use `videoProvider: "kling-v3"` and provide `model-1.jpg` reference.
+- **For native audio/dialogue**: Use `videoProvider: "sora-2"` or `"sora-2-720p"`. Sora generates synchronized audio from the prompt.
+- **For clips >10s**: Sora supports up to 20s (4/8/12/16/20s). Kling maxes at 10s, Veo at 8s.
 
 ### Step 5: Validate Before Saving
 
@@ -257,6 +270,8 @@ Structure scenes as a single continuous photo shoot where only the camera distan
 | Transcription (Whisper) | ~$0.02 | Only if voiceover |
 | Video clips (Kling v2.1) | ~$0.49/5s, ~$0.90/10s | Per video/animation clip |
 | Video clips (Kling v3) | ~$1.12/5s, ~$2.24/10s | Per clip — higher quality |
+| Video clips (Sora 2 720p) | ~$1.20/4s, ~$2.40/8s | Per clip — native audio |
+| Video clips (Sora 2 1080p) | ~$2.00/4s, ~$4.00/8s | Per clip — native audio, higher res |
 | Video clips (Veo 3.1) | ~$4.50/6s, ~$6.00/8s | Per clip — Google |
 | Brand images (Gemini) | ~$0.08 x clips x formats | brand-images mode |
 

@@ -10,7 +10,7 @@ import { CostTracker } from '../utils/cost-tracker.js';
 import { AssetLoader } from './assets.js';
 import { generateVoiceover } from './elevenlabs.js';
 import { transcribeAudio } from './whisper.js';
-import { generateFalClip, generateV3MultiShot } from './fal.js';
+import { generateFalClip, generateV3MultiShot, generateSoraClip } from './fal.js';
 import type { MultiShotPrompt } from './fal.js';
 import { generateVeoClip } from './veo.js';
 import { packageFinalVideo } from './export.js';
@@ -107,6 +107,17 @@ function buildVideoPrompt(
       if (lighting) parts.push(lighting);
       if (colorGrade) parts.push(colorGrade);
       parts.push('Cinematic, atmospheric, professional film quality.');
+      return parts.join('. ');
+    }
+
+    case 'sora-2':
+    case 'sora-2-720p': {
+      // Sora handles rich descriptions well, similar to Veo
+      const parts = [plan.prompt];
+      if (cameraMove) parts.push(cameraMove);
+      if (lighting) parts.push(lighting);
+      if (colorGrade) parts.push(colorGrade);
+      parts.push('Cinematic, photorealistic.');
       return parts.join('. ');
     }
 
@@ -440,6 +451,14 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
     const dur = durationSec > 5;
     if (provider === 'veo-3.1') return { key: dur ? 'veo-3.1-8s' : 'veo-3.1-6s', label: `Veo 3.1 ${dur ? '8s' : '6s'}` };
     if (provider === 'veo-3.1-fast') return { key: dur ? 'veo-3.1-fast-8s' : 'veo-3.1-fast-6s', label: `Veo 3.1 Fast ${dur ? '8s' : '6s'}` };
+    if (provider === 'sora-2') {
+      const sd = durationSec <= 4 ? 4 : durationSec <= 8 ? 8 : durationSec <= 12 ? 12 : durationSec <= 16 ? 16 : 20;
+      return { key: `sora-2-${sd}s`, label: `Sora 2 1080p ${sd}s` };
+    }
+    if (provider === 'sora-2-720p') {
+      const sd = durationSec <= 4 ? 4 : durationSec <= 8 ? 8 : durationSec <= 12 ? 12 : durationSec <= 16 ? 16 : 20;
+      return { key: `sora-2-720p-${sd}s`, label: `Sora 2 720p ${sd}s` };
+    }
     if (provider === 'kling-v3') return { key: dur ? 'kling-v3-10s' : 'kling-v3-5s', label: `Kling v3 ${dur ? '10s' : '5s'}` };
     return { key: dur ? 'kling-10s' : 'kling-5s', label: `Kling v2.1 ${dur ? '10s' : '5s'}` };
   }
@@ -864,6 +883,8 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
               throw veoErr;
             }
           }
+        } else if (videoProvider === 'sora-2' || videoProvider === 'sora-2-720p') {
+          clipPath = await generateSoraClip(videoPrompt, options, PROJECTS_ROOT, videoProvider, imageRef);
         } else {
           const kv: KlingVersion = videoProvider === 'kling-v3' ? 'v3' : 'v2.1';
           clipPath = await generateFalClip(videoPrompt, options, PROJECTS_ROOT, imageRef, undefined, kv);

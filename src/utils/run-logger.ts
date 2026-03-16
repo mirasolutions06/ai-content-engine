@@ -51,12 +51,26 @@ const COST_MAP: Record<string, number> = {
   'veo-3.1-8s': 6.00,
   'veo-3.1-fast-6s': 2.25,
   'veo-3.1-fast-8s': 3.00,
+  // Sora 2 1080p ($0.50/s)
+  'sora-2-4s': 2.00,
+  'sora-2-8s': 4.00,
+  'sora-2-12s': 6.00,
+  'sora-2-16s': 8.00,
+  'sora-2-20s': 10.00,
+  // Sora 2 720p ($0.30/s)
+  'sora-2-720p-4s': 1.20,
+  'sora-2-720p-8s': 2.40,
+  'sora-2-720p-12s': 3.60,
+  'sora-2-720p-16s': 4.80,
+  'sora-2-720p-20s': 6.00,
   'gemini-video-analysis': 0.05,
   'gemini-frame-variation': 0.08,
   'gpt-image-standard': 0.04,
   'gpt-image-hd': 0.08,
   'haiku-image-qa': 0.02,
   'haiku-ref-eval': 0.01,
+  // Model sheet generation (Gemini image-to-image)
+  'gemini-model-sheet': 0.08,
 };
 
 /**
@@ -258,6 +272,12 @@ export class RunLogger {
         let videoKey: string;
         if (provider === 'veo-3.1') videoKey = dur ? 'veo-3.1-8s' : 'veo-3.1-6s';
         else if (provider === 'veo-3.1-fast') videoKey = dur ? 'veo-3.1-fast-8s' : 'veo-3.1-fast-6s';
+        else if (provider === 'sora-2' || provider === 'sora-2-720p') {
+          const d = clip.duration ?? 5;
+          const sd = d <= 4 ? 4 : d <= 8 ? 8 : d <= 12 ? 12 : d <= 16 ? 16 : 20;
+          const prefix = provider === 'sora-2-720p' ? 'sora-2-720p' : 'sora-2';
+          videoKey = `${prefix}-${sd}s`;
+        }
         else if (provider === 'kling-v3') videoKey = dur ? 'kling-v3-10s' : 'kling-v3-5s';
         else videoKey = dur ? 'kling-10s' : 'kling-5s';
         total += COST_MAP[videoKey]!;

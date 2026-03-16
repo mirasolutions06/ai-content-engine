@@ -76,7 +76,7 @@ export function validateConfig(config: VideoConfig): void {
   }
 
   if (config.videoProvider !== undefined) {
-    const VALID_PROVIDERS = ['kling-v2.1', 'kling-v3', 'veo-3.1', 'veo-3.1-fast'] as const;
+    const VALID_PROVIDERS = ['kling-v2.1', 'kling-v3', 'veo-3.1', 'veo-3.1-fast', 'sora-2', 'sora-2-720p'] as const;
     if (!VALID_PROVIDERS.includes(config.videoProvider as typeof VALID_PROVIDERS[number])) {
       throw new Error(
         `config.json "videoProvider" value "${config.videoProvider}" is not valid. ` +

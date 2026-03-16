@@ -43,6 +43,8 @@ These rules are critical. A single bad pipeline run can burn $5-20+ in API credi
 | Video clips (Kling v2.1) | Kling v2.1 Pro via fal.ai | ~$0.49-0.90/clip | HIGH — most expensive |
 | Video clips (Kling v3) | Kling v3 Pro via fal.ai | ~$1.12-2.24/clip | HIGH — ~2.3x more than v2.1 |
 | Video clips (Veo 3.1) | Google Veo 3.1 | ~$4.50-6.00/clip | HIGH — 4-8s clips |
+| Video clips (Sora 2 1080p) | Sora 2 via fal.ai | ~$2.00-10.00/clip | HIGH — $0.50/s |
+| Video clips (Sora 2 720p) | Sora 2 via fal.ai | ~$1.20-6.00/clip | HIGH — $0.30/s |
 | Rendering | Remotion | Free (local) | None |
 | Copy gen | Claude (skills) | ~$0.05-0.15 | Low |
 

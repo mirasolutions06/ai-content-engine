@@ -12,7 +12,7 @@ export type CaptionTheme = 'bold' | 'editorial' | 'minimal';
 export type TransitionType = 'crossfade' | 'cut' | 'wipe';
 export type AspectRatio = '9:16' | '16:9' | '1:1';
 export type KlingVersion = 'v2.1' | 'v3';
-export type VideoProvider = 'kling-v2.1' | 'kling-v3' | 'veo-3.1' | 'veo-3.1-fast';
+export type VideoProvider = 'kling-v2.1' | 'kling-v3' | 'veo-3.1' | 'veo-3.1-fast' | 'sora-2' | 'sora-2-720p';
 export type ImageProvider = 'gemini' | 'gpt-image';
 export type ClipOutputType = 'image' | 'video' | 'animation';
 export type ImageSource = 'generate' | 'original' | 'edit';
@@ -155,6 +155,10 @@ export interface VideoConfig {
   /** Reference video URL or local path. Analyzed for style/pacing/mood; key frames extracted as style refs.
    *  Supports direct .mp4/.mov URLs, local paths, and social media URLs (TikTok/IG/YouTube) via yt-dlp. */
   videoRef?: string;
+  /** Generate multi-angle model sheets from model reference(s) using Gemini.
+   *  true = auto-detect model-*.jpg, or string = specific model ref filename.
+   *  Produces model-sheet.jpg (5 face angles) and model-body.jpg (2 full-body poses). */
+  modelSheet?: boolean | string;
 }
 
 // ─── Video Generation ───────────────────────────────────────────────────────

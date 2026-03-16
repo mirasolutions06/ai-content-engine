@@ -573,6 +573,166 @@ async function importMoodBoard(
   }
 }
 
+// ── Model sheet generation ───────────────────────────────────────────────────
+
+const MODEL_SHEET_SYSTEM = `You are a professional portrait photographer creating model comp cards / character reference sheets.
+Generate a MULTI-VIEW reference image showing the same person from different angles arranged in a single image.
+This is intentionally a multi-view layout — NOT a single photo.`;
+
+/**
+ * Generates model reference sheets (face + body) from a source model image using Gemini.
+ * Produces two files:
+ *   - model-sheet.jpg — 5 headshot angles on white background
+ *   - model-body.jpg — 2 full-body poses in plain neutral clothing on white background
+ *
+ * Idempotent: skips if output files already exist.
+ */
+async function generateModelSheets(
+  config: VideoConfig,
+  projectDir: string,
+  costTracker: CostTracker,
+  dryRun: boolean,
+): Promise<void> {
+  if (!config.modelSheet) return;
+
+  const apiKey = process.env['GEMINI_API_KEY'];
+  if (!apiKey) {
+    logger.warn('GEMINI_API_KEY not set — skipping model sheet generation.');
+    return;
+  }
+
+  // Find source model image
+  let sourceImagePath: string | null = null;
+
+  if (typeof config.modelSheet === 'string') {
+    const candidate = path.join(projectDir, config.modelSheet);
+    if (await fs.pathExists(candidate)) {
+      sourceImagePath = candidate;
+    } else {
+      logger.warn(`Model sheet: specified source "${config.modelSheet}" not found — skipping.`);
+      return;
+    }
+  } else {
+    // Auto-detect: find first model-*.jpg/png in project root (exclude model-sheet, model-body)
+    let files: string[];
+    try { files = await fs.readdir(projectDir); } catch { return; }
+    const modelPattern = /^model(?:-(\d+))?\.(?:jpg|jpeg|png)$/i;
+    const match = files.filter((f) => modelPattern.test(f)).sort()[0];
+    if (match) {
+      sourceImagePath = path.join(projectDir, match);
+    } else {
+      logger.warn('Model sheet: no model-*.jpg found in project root — skipping.');
+      return;
+    }
+  }
+
+  // Read source image once
+  const sourceBuffer = await fs.readFile(sourceImagePath);
+  const isPng = sourceBuffer[0] === 0x89 && sourceBuffer[1] === 0x50 && sourceBuffer[2] === 0x4E && sourceBuffer[3] === 0x47;
+  const sourceMime = isPng ? 'image/png' : 'image/jpeg';
+
+  logger.step(`Model sheet: using ${path.basename(sourceImagePath)} as source reference.`);
+
+  const sheets: Array<{ name: string; outputFile: string; label: string; prompt: string }> = [
+    {
+      name: 'face sheet',
+      outputFile: 'model-sheet.jpg',
+      label: '[SOURCE MODEL — generate a multi-angle face reference sheet of THIS EXACT person]',
+      prompt: [
+        'Create a professional model/character reference sheet of this exact person.',
+        'Show 5 head-and-shoulders views in a single horizontal row:',
+        '1. Front-facing  2. Three-quarter left  3. Three-quarter right  4. Left profile  5. Looking over right shoulder (slight back-turn)',
+        'White seamless studio background. Even, flat lighting — no dramatic shadows.',
+        'Neutral relaxed expression in every view. Same exact person, same hair, same skin tone, same facial features in ALL views.',
+        'Consistent framing and scale across all views.',
+        'This is a reference sheet for visual consistency — clinical accuracy is more important than artistic style.',
+      ].join('\n'),
+    },
+    {
+      name: 'body sheet',
+      outputFile: 'model-body.jpg',
+      label: '[SOURCE MODEL — generate a full-body reference of THIS EXACT person]',
+      prompt: [
+        'Create a full-body reference sheet of this exact person.',
+        'Show 2 full-body views side by side:',
+        '1. Standing front-facing, relaxed posture, weight evenly distributed',
+        '2. Three-quarter angle, natural walking or relaxed stance',
+        'Wearing plain neutral clothing: simple white or light grey crew-neck t-shirt and dark navy or black trousers. No logos, no branding, no accessories.',
+        'White seamless studio background. Even, flat lighting from all directions.',
+        'Same person as the reference — same face, same build, same skin tone. Full body visible from head to shoes.',
+        'This is a body proportion reference — accuracy and consistency matter more than style.',
+      ].join('\n'),
+    },
+  ];
+
+  type InlineDataPart = { inlineData: { mimeType: string; data: string } };
+  type TextPart = { text: string };
+
+  for (const sheet of sheets) {
+    const outputPath = path.join(projectDir, sheet.outputFile);
+
+    if (await fs.pathExists(outputPath)) {
+      logger.skip(`Model sheet: ${sheet.outputFile} already exists.`);
+      continue;
+    }
+
+    if (dryRun) {
+      logger.info(`[DRY RUN] Would generate ${sheet.name} → ${sheet.outputFile} (~$0.08)`);
+      continue;
+    }
+
+    logger.step(`Model sheet: generating ${sheet.name}...`);
+
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+
+      const parts: Array<TextPart | InlineDataPart> = [
+        { text: sheet.label },
+        { inlineData: { mimeType: sourceMime, data: sourceBuffer.toString('base64') } },
+        { text: sheet.prompt },
+      ];
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-image-preview',
+        contents: [{ role: 'user', parts }],
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          systemInstruction: MODEL_SHEET_SYSTEM,
+        },
+      });
+
+      let imageData: string | null = null;
+      let imageMime = 'image/png';
+      outer: for (const candidate of response.candidates ?? []) {
+        for (const part of candidate.content?.parts ?? []) {
+          if ((part as InlineDataPart).inlineData?.data) {
+            imageData = (part as InlineDataPart).inlineData.data;
+            imageMime = (part as InlineDataPart).inlineData.mimeType ?? 'image/png';
+            break outer;
+          }
+        }
+      }
+
+      if (!imageData) {
+        logger.warn(`Model sheet: Gemini returned no image data for ${sheet.name}.`);
+        costTracker.logStep('gemini-model-sheet', false);
+        continue;
+      }
+
+      // Save with correct extension
+      const isJpeg = imageMime.includes('jpeg') || imageMime.includes('jpg');
+      const finalPath = isJpeg ? outputPath : outputPath.replace('.jpg', '.png');
+      await fs.writeFile(finalPath, Buffer.from(imageData, 'base64'));
+
+      costTracker.logStep('gemini-model-sheet', false);
+      logger.success(`Model sheet: ${sheet.name} saved to ${path.basename(finalPath)}`);
+    } catch (err) {
+      logger.warn(`Model sheet: ${sheet.name} generation failed: ${String(err)}`);
+      costTracker.logStep('gemini-model-sheet', false);
+    }
+  }
+}
+
 /**
  * Auto-sources project assets: brand colors, style reference, location reference,
  * and background music. Runs AFTER config.json is loaded but BEFORE the Director step.
@@ -589,6 +749,9 @@ export async function sourceAssets(
 ): Promise<AssetSourcingResult> {
   // Import mood board images first (before any other asset sourcing)
   await importMoodBoard(config, projectDir, dryRun);
+
+  // Generate model sheets if configured (before refs are discovered)
+  await generateModelSheets(config, projectDir, costTracker, dryRun);
 
   logger.step('Asset sourcer: checking for auto-sourceable assets...');
 
