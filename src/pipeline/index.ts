@@ -237,6 +237,14 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
     const directorPlan = await runDirector(config, assets, PROJECTS_ROOT, projectName, videoAnalysis ?? undefined);
     costTracker.logStep('director', directorPlan !== null);
 
+    if (runOpts?.directorOnly === true) {
+      await costTracker.save();
+      const ctxPath = path.join(projectDir, 'cache', 'brand-context.json');
+      logger.success(`Director plan ready. Review: ${path.relative(process.cwd(), ctxPath)}`);
+      logger.info('Run again without --director-only to generate images.');
+      return ctxPath;
+    }
+
     if (dryRun) {
       const formats = config.imageFormats ?? ['story', 'square', 'landscape'];
       const imageCount = config.clips.length * formats.length;
@@ -353,6 +361,14 @@ export async function runPipeline(projectName: string, runOpts?: RunOptions): Pr
   // ── Director step (runs even in dry-run — cheap and cached) ────────────
   const directorPlan = await runDirector(config, assets, PROJECTS_ROOT, projectName, videoAnalysis ?? undefined);
   costTracker.logStep('director', directorPlan !== null);
+
+  if (runOpts?.directorOnly === true) {
+    await costTracker.save();
+    const ctxPath = path.join(projectDir, 'cache', 'brand-context.json');
+    logger.success(`Director plan ready. Review: ${path.relative(process.cwd(), ctxPath)}`);
+    logger.info('Run again without --director-only to generate.');
+    return ctxPath;
+  }
 
   // Apply Director suggestions for missing hookText / CTA (never overrides explicit config values)
   if (directorPlan?.suggestedHookText !== undefined && config.hookText === undefined) {

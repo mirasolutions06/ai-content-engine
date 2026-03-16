@@ -74,6 +74,26 @@ What SHOULD change between scenes:
 - Subject state: raw ingredient → being used → applied → final product hero
 
 ═══════════════════════════════════════════════════════════════
+REALISM RULE
+═══════════════════════════════════════════════════════════════
+
+Every scene you write must be plausibly shootable by a real photographer with real equipment in a real, accessible location. Ask yourself: "Could I actually set this up on a normal production budget?"
+
+DO NOT:
+- Put people on building edges, skyscraper rooftops with skyline panoramas, or dangerous/impossible locations
+- Create scenes that require expensive sets, rare locations, or impossible logistics
+- Escalate beyond what the config prompt describes — "rooftop" means a normal rooftop, not a skyscraper ledge with a cinematic city panorama
+- Invent dramatic settings that don't match the reference video's production level
+
+DO:
+- Keep environments grounded and realistic — apartments, studios, streets, parks, gyms, simple rooftops
+- Make creative impact through LIGHTING, FRAMING, and COLOR — not exotic locations
+- RESPECT the config prompt's setting. If it says "parking garage," write a parking garage. If it says "bedroom," write a bedroom. Enhance the PHOTOGRAPHY, not the SETTING.
+- Match the production scope of the reference video if one is provided
+
+Creative impact comes from HOW you shoot, not WHERE you shoot. A woman in a bedroom with perfect golden window light is more scroll-stopping than a woman on a skyscraper edge with a panoramic view.
+
+═══════════════════════════════════════════════════════════════
 SHOT SEQUENCE FRAMEWORK (Hook → Body → CTA)
 ═══════════════════════════════════════════════════════════════
 
@@ -111,6 +131,7 @@ ENRICHED PROMPT RULES
    - Add color palette from the GLOBAL colorPalette (descriptive words ONLY, NEVER hex codes like #D4AF37 — AI generators render hex codes as visible text on the image)
    - Write as a natural scene description, not a keyword list
    - NEVER use generic filler like "masterpiece, best quality, 4k, trending"
+   - RESPECT the config prompt's setting. If the user wrote "parking garage," write a parking garage. Enhance the PHOTOGRAPHY (lighting, angle, depth of field), do not reimagine the SETTING.
 
 3. Derive lightingSetup, backgroundDescription, colorPalette, and visualStyleSummary from reference images if present. Without images, derive from format conventions, brand colors, and script tone.
 
@@ -153,6 +174,7 @@ ENRICHED PROMPT RULES
     - USER IMAGE REFS (product-*, model-*) drive: the actual subject/content. These are what appears in the video — the product, the person, the brand.
     - VIDEO REF FRAMES (videoref-*) are supplementary style references extracted from the reference video. Use them to reinforce the visual aesthetic.
     - The goal: "looks like MY product, moves like THEIR video." Match the reference video's cinematography and energy while featuring the user's actual products/models.
+    - PRODUCTION LEVEL: Match the reference video's scale and intimacy. If the reference is a person posing in a hallway with simple lighting, your scenes should have similar production scope — small accessible spaces, practical lighting, intimate framing. Do NOT escalate a hallway-level video into skyscraper-edge rooftop scenes with panoramic city views. The reference video IS the ceiling for location complexity.
 
 16. When writing enrichedPrompt, apply the relevant prompting framework:
     - UGC / talking heads → use realism techniques (natural skin, window light)
@@ -212,6 +234,26 @@ What SHOULD change between images:
 - For fashion/lifestyle: environment can shift (corridor → locker room → outdoor → apartment) while maintaining visual system consistency
 
 ═══════════════════════════════════════════════════════════════
+REALISM RULE
+═══════════════════════════════════════════════════════════════
+
+Every scene you write must be plausibly shootable by a real photographer with real equipment in a real, accessible location. Ask yourself: "Could I actually set this up on a normal production budget?"
+
+DO NOT:
+- Put people on building edges, skyscraper rooftops with skyline panoramas, or dangerous/impossible locations
+- Create scenes that require expensive sets, rare locations, or impossible logistics
+- Escalate beyond what the config prompt describes — "rooftop" means a normal rooftop, not a skyscraper ledge with a cinematic city panorama
+- Invent dramatic settings that don't match the reference video's production level
+
+DO:
+- Keep environments grounded and realistic — apartments, studios, streets, parks, gyms, simple rooftops
+- Make creative impact through LIGHTING, FRAMING, and COLOR — not exotic locations
+- RESPECT the config prompt's setting. If it says "parking garage," write a parking garage. If it says "bedroom," write a bedroom. Enhance the PHOTOGRAPHY, not the SETTING.
+- Match the production scope of the reference video if one is provided
+
+Creative impact comes from HOW you shoot, not WHERE you shoot. A woman in a bedroom with perfect golden window light is more scroll-stopping than a woman on a skyscraper edge with a panoramic view.
+
+═══════════════════════════════════════════════════════════════
 ENRICHED PROMPT RULES
 ═══════════════════════════════════════════════════════════════
 
@@ -226,6 +268,7 @@ ENRICHED PROMPT RULES
    - Use the GLOBAL colorPalette (descriptive words ONLY, NEVER hex codes)
    - Write as a natural scene description, not a keyword list
    - NEVER use generic filler like "masterpiece, best quality, 4k, trending"
+   - RESPECT the config prompt's setting. If the user wrote "parking garage," write a parking garage. If they wrote "bedroom," write a bedroom. Enhance the PHOTOGRAPHY (lighting, angle, depth of field), do not reimagine the SETTING.
 
 3. Derive lightingSetup, backgroundDescription, colorPalette from reference images if present. Without images, derive from the brand brief and clip prompts.
 
@@ -254,7 +297,8 @@ ENRICHED PROMPT RULES
    - VIDEO ANALYSIS drives: color grade, lighting style, composition approach, mood. Match the reference video's visual aesthetic.
    - USER IMAGE REFS (product-*, model-*) drive: the actual subject/content appearing in images.
    - VIDEO REF FRAMES (videoref-*) are key frames from the reference video — use as supplementary style references.
-   - Goal: "my products, their visual style." Match the reference video's look while featuring the user's actual products/models.`;
+   - Goal: "my products, their visual style." Match the reference video's look while featuring the user's actual products/models.
+   - PRODUCTION LEVEL: Match the reference video's scale and intimacy. If the reference is a person posing in a hallway with simple lighting, keep your scenes at similar production scope — small accessible spaces, practical lighting, intimate framing. The reference video IS the ceiling for location complexity. Do NOT escalate beyond it.`;
 
 let BEST_PRACTICES_LOADED = '';
 

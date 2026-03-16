@@ -17,6 +17,7 @@ program
   .option('--regenerate <numbers>', 'Regenerate specific images by number (e.g. 3,5)')
   .option('--draft', 'Cheap preview: Kling v2.1 5s, skip voiceover and Remotion')
   .option('--resume', 'Resume from last checkpoint instead of starting fresh')
+  .option('--director-only', 'Run Director planning step only — review plan before generation')
   .parse();
 
 const opts = program.opts<{
@@ -30,6 +31,7 @@ const opts = program.opts<{
   regenerate?: string;
   draft?: boolean;
   resume?: boolean;
+  directorOnly?: boolean;
 }>();
 
 async function main(): Promise<void> {
@@ -47,6 +49,7 @@ async function main(): Promise<void> {
   if (opts.airtableReview === true) runOpts.airtableReview = true;
   if (opts.draft === true) runOpts.draft = true;
   if (opts.resume === true) runOpts.resume = true;
+  if (opts.directorOnly === true) runOpts.directorOnly = true;
 
   if (opts.variations !== undefined) {
     const n = Math.min(Math.max(opts.variations, 1), 4);
@@ -73,6 +76,9 @@ async function main(): Promise<void> {
   } else if (opts.storyboardOnly === true) {
     logger.success(`Storyboard ready — review images at: ${result}`);
     logger.info('Delete any you want regenerated, then re-run without --storyboard-only.');
+  } else if (opts.directorOnly === true) {
+    logger.success(`Director plan ready for review: ${result}`);
+    logger.info('Review cache/brand-context.json, then run again without --director-only to generate.');
   } else if (opts.dryRun === true) {
     logger.success(`Dry run complete for project: ${opts.project}`);
   } else {
