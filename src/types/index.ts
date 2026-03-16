@@ -88,6 +88,8 @@ export interface VideoClip {
   sourceImage?: string;
   /** Text overlay to composite on the final image output. Only applies to image-type clips. */
   overlay?: ImageOverlay;
+  /** Per-clip reference image filenames (e.g. ["product-1.jpg"]). Only these refs are sent to Gemini for this clip. If omitted, all project refs are sent. */
+  refs?: string[];
 }
 
 export interface VideoConfig {

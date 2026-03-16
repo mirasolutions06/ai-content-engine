@@ -209,6 +209,7 @@ No storyboard gate — images are cheap (~$0.08 each). Run directly via `npm sta
 - `products` field prevents phantom product invention
 - `skipAutoRefs` avoids low-quality auto-generated references
 - Reference images (`model-*.jpg`, `product-*.jpg`) are the single biggest quality lever
+- Per-clip `refs` field: when multiple products exist, assign specific refs per scene (`"refs": ["product-1.jpg"]`) instead of sending all refs to every generation — prevents Gemini from conflating different products
 - Director enriches prompts — config prompts should be evocative, not hyper-specific
 - Scene-1 anchoring: first image becomes style reference for all subsequent images
 

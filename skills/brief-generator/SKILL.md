@@ -162,6 +162,16 @@ Named files in the project directory get labeled in the Gemini prompt:
 
 More refs = better consistency. Nike used 6 refs and got campaign-grade output. Ama Shea used zero refs and still scored 4.5-5.0/5 with good prompts.
 
+**Per-clip `refs` (smart reference selection):**
+When a project has many product references, send only the relevant ones per scene. Without `refs`, ALL project references are sent to Gemini for every image — confusing the model when products differ across scenes.
+```json
+{
+  "prompt": "Hero shot of shea butter...",
+  "refs": ["product-1.jpg"]
+}
+```
+Use this when the campaign features multiple distinct products. Scene 1 (overview) might use all refs; individual hero shots should use only the matching product ref.
+
 **Prompt style for brand-images:**
 Write LOOSE, evocative prompts — not hyper-specific descriptions. The Director enriches them. Over-specifying constrains Gemini.
 

@@ -443,9 +443,13 @@ export async function generateBrandImages(
           brandContext, products,
         );
       } else {
+        // Per-clip ref filtering: if clip.refs is set, only send those specific references
+        const clipRefs = clip.refs
+          ? referenceImagePaths.filter((p) => clip.refs!.includes(path.basename(p)))
+          : referenceImagePaths;
         result = await generateBrandImage(
           clipIndex, clipPrompt, brand, brief, format, outputPath,
-          referenceImagePaths, brandContext,
+          clipRefs, brandContext,
           clipIndex > 1 ? scene1AnchorPath : undefined, products,
         );
       }
