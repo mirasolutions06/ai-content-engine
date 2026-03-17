@@ -380,15 +380,26 @@ export async function generateBrandImages(
   const multiClip = clips.length > 1;
 
   const referenceImagePaths = await findReferenceImages(projectsRoot, projectName);
-  if (referenceImagePaths.length > 0) {
-    logger.info(`Using ${referenceImagePaths.length} reference image(s): ${referenceImagePaths.map((p) => path.basename(p)).join(', ')}`);
+
+  // If model sheets exist (model-sheet.jpg / model-body.jpg), use them INSTEAD of the original
+  // model refs (model.jpg, model-1.jpg, etc.) — sheets have more angles and are more useful.
+  const hasSheets = referenceImagePaths.some((p) => {
+    const base = path.basename(p, path.extname(p));
+    return base === 'model-sheet' || base === 'model-body';
+  });
+  const effectiveRefs = hasSheets
+    ? referenceImagePaths.filter((p) => !/^model(-\d+)?\./.test(path.basename(p)))
+    : referenceImagePaths;
+
+  if (effectiveRefs.length > 0) {
+    logger.info(`Using ${effectiveRefs.length} reference image(s): ${effectiveRefs.map((p) => path.basename(p)).join(', ')}`);
   }
 
   // Split refs by type for QA comparison
-  const modelRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('model'));
-  const productRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('product'));
-  const styleRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('style'));
-  const locationRefPaths = referenceImagePaths.filter((p) => path.basename(p).startsWith('location'));
+  const modelRefPaths = effectiveRefs.filter((p) => path.basename(p).startsWith('model'));
+  const productRefPaths = effectiveRefs.filter((p) => path.basename(p).startsWith('product'));
+  const styleRefPaths = effectiveRefs.filter((p) => path.basename(p).startsWith('style'));
+  const locationRefPaths = effectiveRefs.filter((p) => path.basename(p).startsWith('location'));
 
   const brandContext = await loadBrandContext(projectsRoot, projectName);
   const qaResults: ImageQAResult[] = [];
@@ -461,14 +472,14 @@ export async function generateBrandImages(
         // Model sheets auto-included when clip refs any model-* image (i.e. clip features a model)
         const clipHasModel = clip.refs?.some((r) => r.startsWith('model'));
         const clipRefs = clip.refs
-          ? referenceImagePaths.filter((p) => {
+          ? effectiveRefs.filter((p) => {
               if (clipHasModel) {
                 const base = path.basename(p, path.extname(p));
                 if (base === 'model-sheet' || base === 'model-body') return true;
               }
               return clip.refs!.includes(path.basename(p));
             })
-          : referenceImagePaths;
+          : effectiveRefs;
         result = await generateBrandImage(
           clipIndex, clipPrompt, brand, brief, format, outputPath,
           clipRefs, brandContext,

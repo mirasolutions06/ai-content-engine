@@ -3,6 +3,7 @@ import fs from 'fs-extra';
 import { GoogleGenAI } from '@google/genai';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../utils/logger.js';
+import { retryWithBackoff } from '../utils/retry.js';
 import { CostTracker } from '../utils/cost-tracker.js';
 import type { VideoConfig, BrandColors, AssetSourcingResult, MoodBoardEntry } from '../types/index.js';
 
@@ -29,24 +30,27 @@ async function evaluateAutoRef(
     const mediaType = isPng ? 'image/png' : 'image/jpeg';
 
     const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
-      model: REF_EVAL_MODEL,
-      max_tokens: 256,
-      system: 'You evaluate AI-generated reference images for quality. Return ONLY a JSON object: { "score": <1-5>, "isCollage": <boolean>, "issues": ["<issue>"] }. Score: 5 = excellent single photo, 3 = acceptable, 1 = unusable. isCollage = true if the image is a grid, mood board, or multiple images composited together.',
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'image',
-            source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') },
-          },
-          {
-            type: 'text',
-            text: `Evaluate this auto-generated ${refType} reference image. It should be: "${description}". Is it a single high-quality photograph suitable as a ${refType} reference?`,
-          },
-        ],
-      }],
-    });
+    const response = await retryWithBackoff(
+      () => client.messages.create({
+        model: REF_EVAL_MODEL,
+        max_tokens: 256,
+        system: 'You evaluate AI-generated reference images for quality. Return ONLY a JSON object: { "score": <1-5>, "isCollage": <boolean>, "issues": ["<issue>"] }. Score: 5 = excellent single photo, 3 = acceptable, 1 = unusable. isCollage = true if the image is a grid, mood board, or multiple images composited together.',
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: mediaType, data: buffer.toString('base64') },
+            },
+            {
+              type: 'text',
+              text: `Evaluate this auto-generated ${refType} reference image. It should be: "${description}". Is it a single high-quality photograph suitable as a ${refType} reference?`,
+            },
+          ],
+        }],
+      }),
+      { attempts: 3, delayMs: 3000, label: 'Auto-ref evaluation' },
+    );
 
     costTracker.logStep('haiku-ref-eval', false);
 
@@ -168,16 +172,19 @@ async function generateColorsFromDescription(description: string): Promise<Brand
 
   try {
     const client = new Anthropic({ apiKey });
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 150,
-      messages: [{
-        role: 'user',
-        content: `Given this brand description: "${description}", suggest 3 hex color codes ` +
-          `(primary, secondary, accent) that match the brand's tone. ` +
-          `Return ONLY valid JSON: {"primary":"#hex","secondary":"#hex","accent":"#hex"}`,
-      }],
-    });
+    const response = await retryWithBackoff(
+      () => client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 150,
+        messages: [{
+          role: 'user',
+          content: `Given this brand description: "${description}", suggest 3 hex color codes ` +
+            `(primary, secondary, accent) that match the brand's tone. ` +
+            `Return ONLY valid JSON: {"primary":"#hex","secondary":"#hex","accent":"#hex"}`,
+        }],
+      }),
+      { attempts: 3, delayMs: 3000, label: 'Brand color generation' },
+    );
 
     const block = response.content[0];
     if (block?.type !== 'text') return null;

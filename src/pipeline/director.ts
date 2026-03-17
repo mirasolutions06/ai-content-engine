@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs-extra';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../utils/logger.js';
+import { retryWithBackoff } from '../utils/retry.js';
 import { loadBrandMemory, getDirectorContext } from '../utils/brand-memory.js';
 import { loadSkillMemory, getSkillDirectorContext } from '../utils/skill-memory.js';
 import type {
@@ -16,289 +17,136 @@ import type {
   PipelineMode,
 } from '../types/index.js';
 
-const DEFAULT_MODEL = 'claude-opus-4-6';
+const DEFAULT_MODEL = 'claude-sonnet-4-6';
 
-const SYSTEM_PROMPT = `You are an expert short-form video director. You create DirectorPlans for 15-30 second product videos (TikTok, YouTube Shorts, Instagram Reels, ads). Your videos must feel like ONE professional shoot — not separate clips glued together.
+// ── Shared system prompt base ────────────────────────────────────────────────
 
-You will receive a user message containing:
-1. A PROJECT BRIEF in JSON format with format, script, clips, and brand data
-2. Up to three reference images labeled [STYLE REFERENCE], [SUBJECT REFERENCE], [LOCATION REFERENCE]
+const SHARED_SYSTEM_PROMPT = `You are a photography director. The user's config prompts describe WHAT is in the scene. Your job is to describe HOW to photograph it — add lighting direction, lens choice, depth of field, color temperature, and camera position. NEVER change the setting, subject, or action the user described. If the prompt says "parking garage," your enrichedPrompt describes a parking garage with beautiful photography. If it says "bedroom," it stays a bedroom.
 
-OUTPUT FORMAT — return ONLY this JSON object, nothing else:
+You will receive a PROJECT BRIEF in JSON format with clips and brand data, plus optional reference images.
 
+Output ONLY a raw JSON object, no markdown fences, no explanatory text.
+
+BASE OUTPUT SCHEMA (mode-specific fields added below):
 {
-  "visualStyleSummary": "<1 sentence, e.g. 'Warm documentary close-ups with amber side-light on dark wood, shallow focus'>",
-  "lightingSetup": "<THE lighting setup used for ALL scenes, e.g. 'warm amber key light from camera-left at 45°, soft diffused fill from right, dark background'>",
-  "backgroundDescription": "<THE background/environment for ALL scenes, e.g. 'dark weathered wood surface with soft out-of-focus warm bokeh'>",
-  "colorPalette": "<THE color palette for ALL scenes using descriptive words ONLY, e.g. 'warm amber highlights, deep chocolate shadows, ivory cream accents — NEVER hex codes'>",
+  "visualStyleSummary": "<1 sentence, e.g. 'Warm editorial product photography on dark wood with golden amber side-light and shallow focus'>",
+  "lightingSetup": "<THE lighting for ALL scenes, e.g. 'warm amber key light from camera-left at 45°, soft diffused fill'>",
+  "backgroundDescription": "<THE background for ALL scenes, e.g. 'dark weathered wood surface with soft warm bokeh'>",
+  "colorPalette": "<descriptive words ONLY, e.g. 'warm amber highlights, deep chocolate shadows, ivory cream accents' — NEVER hex codes>",
   "clips": [
     {
       "sceneIndex": 1,
-      "shotType": "<'extreme-close-up' | 'close-up' | 'medium' | 'wide' | 'detail'>",
-      "enrichedPrompt": "<scene description rewritten for AI image generation — see rules below>",
-      "continuityNote": "<what connects this shot to the previous one visually>",
-      "cameraMove": "<SHORT motion description for video animation, e.g. 'slow gentle push-in, hands crack open a nut'. Max 80 chars. Describe WHAT MOVES and HOW, not the scene. Keep motion MINIMAL — subtle drift, slow zoom, gentle push. Avoid complex multi-step movements.>",
-      "lighting": "<MUST reference the global lightingSetup — same direction, same quality, just describe what it does in THIS shot>",
-      "colorGrade": "<MUST match global colorPalette — describe how it manifests in THIS specific shot>",
-      "pace": "<e.g. hold 5s static — let the texture breathe>",
-      "variationAngles": ["<alt camera angle or distance>", "<different lighting emphasis>", "<alternative composition or crop>"]
+      "enrichedPrompt": "<scene description rewritten for AI image generation, max 400 chars>"
     }
-  ],
+  ]
+}
+
+═══ VISUAL CONSISTENCY ═══
+
+Every scene must feel like the SAME shoot. Every enrichedPrompt MUST include:
+- The SAME lighting direction and quality (from lightingSetup). If scene 1 has "warm amber key light from camera-left," ALL scenes do.
+- The SAME background/environment (from backgroundDescription). Exception: fashion/lifestyle campaigns may vary environments IF the brief describes multiple locations — but the material palette and lighting system stay consistent.
+- The SAME color temperature (from colorPalette). No sudden shifts.
+- The SAME hero subject/product at different distances and angles.
+
+What SHOULD change: camera distance, camera angle, focus point, subject state.
+
+═══ REALISM ═══
+
+Scenes must be plausibly shootable. Enhance the PHOTOGRAPHY (lighting, angle, DOF), not the SETTING — if the config says "bedroom," write a bedroom with beautiful photography. Creative impact comes from HOW you shoot, not WHERE. If a reference video is provided, match its production scope.
+
+═══ ENRICHED PROMPT RULES ═══
+
+enrichedPrompt: vivid scene description for AI image generation, max 400 chars.
+- Start with what is in frame — subject at a specific distance
+- Include the GLOBAL lighting setup (same direction, same color temperature)
+- Include the GLOBAL background (same surface/environment, varying blur)
+- Specify depth of field with lens language (e.g. "85mm f/1.4 shallow focus")
+- Use color palette as descriptive words ONLY — NEVER hex codes (AI renders them as visible text)
+- Write as a natural scene description, not a keyword list
+- NEVER use filler like "masterpiece, best quality, 4k, trending"
+
+Derive lightingSetup, backgroundDescription, colorPalette from reference images when present. Without images, derive from brief, brand colors, and script tone.
+
+Number of clip objects MUST exactly equal the number of clips in the input.
+
+═══ PROMPT QUALITY ═══
+
+Every enrichedPrompt must name: the exact surface or environment, the light source direction and color temperature, the lens focal length and aperture. Generic language ("dramatic lighting", "luxury aesthetic", "beautiful composition") tells the generator nothing and produces mediocre output. Derive all specifics from the brief and reference images.
+
+═══ OPTICAL PHYSICS ═══
+
+enrichedPrompts must specify lens behavior that matches real optics:
+
+- 85mm f/1.4: smooth graduated bokeh, razor-thin focal plane, background practicals dissolve into soft circles
+- 24mm ultra-wide: exaggerated perspective, converging lines, environments feel vast and oppressive
+- 35mm: natural field of view, moderate distortion, good for environmental portraits
+- Objects on the same focal plane are equally sharp; things closer or further fall off smoothly`;
+
+// ── Mode-specific addenda ────────────────────────────────────────────────────
+
+const VIDEO_ADDENDUM = `
+═══ VIDEO MODE — ADDITIONAL OUTPUT FIELDS ═══
+
+Your output JSON must also include these fields for video mode:
+
+Per-clip additional fields:
+  "cameraMove": "<SHORT motion description for video animation, e.g. 'slow gentle push-in, hands crack open a nut'. Max 80 chars. Describe WHAT MOVES and HOW. Keep motion MINIMAL — subtle drift, slow zoom, gentle push.>",
+  "continuityNote": "<what connects this shot to the previous one visually>",
+  "lighting": "<references global lightingSetup — same direction, same quality, for THIS shot>",
+  "colorGrade": "<references global colorPalette — how it manifests in THIS shot>"
+
+Top-level additional fields:
   "voice": {
-    "stability": 0.65,
-    "similarityBoost": 0.80,
-    "style": 0.1,
-    "enrichedScript": "<exact original script with optional <break time='0.5s'/> SSML tags added at natural pauses>"
+    "stability": <float>,
+    "similarityBoost": <float>,
+    "style": <float>,
+    "enrichedScript": "<exact original script with optional <break time='0.5s'/> SSML tags at natural pauses>"
   },
-  "suggestedHookText": "<≤7 words, ALL CAPS, no trailing period — or null if hookText already in config>",
-  "suggestedCta": { "text": "<≤5 word action phrase>", "subtext": "<≤10 words>" },
+  "suggestedHookText": "<≤7 words, ALL CAPS — or null if hookText already in config>",
+  "suggestedCta": { "text": "<≤5 words>", "subtext": "<≤10 words>" },
   "suggestedCaptionTheme": "<'bold' | 'editorial' | 'minimal' — or null if captionTheme already in config>"
-}
 
-═══════════════════════════════════════════════════════════════
-CRITICAL: ONE-SHOOT VISUAL CONSISTENCY
-═══════════════════════════════════════════════════════════════
+Voice setting guidelines:
+  - Energetic/promotional: stability=0.35, similarityBoost=0.75, style=0.5
+  - Narrative/documentary: stability=0.65, similarityBoost=0.80, style=0.1
+  - Calm/luxury/ASMR: stability=0.82, similarityBoost=0.88, style=0.0
 
-The #1 problem with AI-generated videos is that each clip looks like it was shot in a different place, with different lighting, at a different time. Your job is to make every scene feel like it came from the SAME shoot.
+enrichedScript must contain every word of the original script unchanged. Only ADD SSML pause tags.
 
-MANDATORY consistency rules — every enrichedPrompt MUST include:
-A) The SAME lighting direction and quality (from lightingSetup). If scene 1 has "warm amber key light from camera-left," ALL scenes have warm amber key light from camera-left.
-B) The SAME background/environment (from backgroundDescription). If scene 1 is on dark wood, ALL scenes are on dark wood. The background can be more or less in focus, but it's the same surface/environment.
-C) The SAME color temperature (from colorPalette). No scene suddenly shifts to cool blue when others are warm amber.
-D) The SAME hero subject/product. The product or main subject appears in EVERY scene — at different distances and angles, but always present and recognizable.
+If the brief includes "referenceVideoAnalysis", BLEND video style with user image refs:
+  - Video analysis drives: camera moves, pacing, color grade, lighting style, mood.
+  - User image refs (product-*, model-*) drive: actual subject/content.
+  - Goal: "looks like MY product, moves like THEIR video."
+  - Match the reference video's production scope — do NOT escalate beyond it.`;
 
-What SHOULD change between scenes:
-- Camera distance: extreme close-up → close-up → medium → detail shot
-- Camera angle: slightly above → eye level → low angle → top-down
-- Focus point: texture detail → full product → context/environment → label/branding
-- Subject state: raw ingredient → being used → applied → final product hero
+const BRAND_IMAGES_ADDENDUM = `
+═══ BRAND IMAGES MODE — ADDITIONAL OUTPUT FIELDS ═══
 
-═══════════════════════════════════════════════════════════════
-REALISM RULE
-═══════════════════════════════════════════════════════════════
+Your output JSON must also include these fields for brand-images mode:
 
-Every scene you write must be plausibly shootable by a real photographer with real equipment in a real, accessible location. Ask yourself: "Could I actually set this up on a normal production budget?"
+Per-clip additional fields:
+  "lighting": "<references global lightingSetup — same direction, same quality, for THIS image>",
+  "colorGrade": "<references global colorPalette — how it manifests in THIS image>"
 
-DO NOT:
-- Put people on building edges, skyscraper rooftops with skyline panoramas, or dangerous/impossible locations
-- Create scenes that require expensive sets, rare locations, or impossible logistics
-- Escalate beyond what the config prompt describes — "rooftop" means a normal rooftop, not a skyscraper ledge with a cinematic city panorama
-- Invent dramatic settings that don't match the reference video's production level
+Top-level additional fields:
+  "suggestedHookText": "<≤7 words, ALL CAPS — or null>",
+  "suggestedCta": { "text": "<≤5 words>", "subtext": "<≤10 words>" }
 
-DO:
-- Keep environments grounded and realistic — apartments, studios, streets, parks, gyms, simple rooftops
-- Make creative impact through LIGHTING, FRAMING, and COLOR — not exotic locations
-- RESPECT the config prompt's setting. If it says "parking garage," write a parking garage. If it says "bedroom," write a bedroom. Enhance the PHOTOGRAPHY, not the SETTING.
-- Match the production scope of the reference video if one is provided
+Images will be cropped to multiple aspect ratios (9:16, 1:1, 16:9) — center-weighted compositions survive all crops best.
 
-Creative impact comes from HOW you shoot, not WHERE you shoot. A woman in a bedroom with perfect golden window light is more scroll-stopping than a woman on a skyscraper edge with a panoramic view.
+Product photography specifics:
+  - Always describe surface material ("dark weathered wood", "dark slate", "raw linen")
+  - One product per frame — multi-product confuses generators
+  - Include scale reference when relevant (hands, objects nearby)
 
-═══════════════════════════════════════════════════════════════
-SHOT SEQUENCE FRAMEWORK (Hook → Body → CTA)
-═══════════════════════════════════════════════════════════════
+Fashion/lifestyle background rule:
+  - Product campaigns: SAME background for ALL images
+  - Fashion campaigns: environments MAY vary IF the brief describes multiple locations, but material palette and lighting system stay consistent
 
-Structure scenes as a progressive reveal, not random unrelated shots:
+When a clip has "shotType" but no "prompt", generate a full enrichedPrompt using the brand brief and product details. Write it as if the user had written a detailed, vivid, brand-specific prompt.
 
-Scene 1 — SENSORY HOOK (extreme close-up or detail shot):
-  Tight crop on an intriguing texture, material, or action. Creates "what IS that?" curiosity.
-  This is the scroll-stopper. Show a compelling detail before revealing the full product.
-
-Scene 2 — CONTEXT (close-up or medium):
-  Pull back slightly to reveal more context. Show the product being used or interacted with.
-  Same subject, same lighting, same background — just a wider frame.
-
-Scene 3 — HERO SHOT (medium or product beauty):
-  The "money shot" — full product in its most desirable state.
-  Same lighting setup but this is where it looks most beautiful.
-
-Scene 4 — CTA SUPPORT (close-up or detail):
-  Product in its final "desire" state — ready to buy, beautifully presented.
-  Same environment. Supports whatever CTA text will overlay this scene.
-
-For 3-clip videos, combine scenes 3 and 4. For 5+ clips, add intermediate detail/texture shots.
-
-═══════════════════════════════════════════════════════════════
-ENRICHED PROMPT RULES
-═══════════════════════════════════════════════════════════════
-
-1. Output only the raw JSON object. No markdown fences, no explanatory text.
-
-2. enrichedPrompt MUST be a vivid scene description optimized for AI image generation. Maximum 400 characters. Rules:
-   - Start by describing exactly what is in frame — the subject at a specific distance
-   - Include the GLOBAL lighting setup (same direction, same color temperature)
-   - Include the GLOBAL background (same surface/environment, varying blur)
-   - Specify depth of field (e.g. "shallow depth of field, f/1.8 bokeh background")
-   - Add color palette from the GLOBAL colorPalette (descriptive words ONLY, NEVER hex codes like #D4AF37 — AI generators render hex codes as visible text on the image)
-   - Write as a natural scene description, not a keyword list
-   - NEVER use generic filler like "masterpiece, best quality, 4k, trending"
-   - RESPECT the config prompt's setting. If the user wrote "parking garage," write a parking garage. Enhance the PHOTOGRAPHY (lighting, angle, depth of field), do not reimagine the SETTING.
-
-3. Derive lightingSetup, backgroundDescription, colorPalette, and visualStyleSummary from reference images if present. Without images, derive from format conventions, brand colors, and script tone.
-
-4. Format-specific defaults when no images are provided:
-   - youtube-short / tiktok: intimate close-ups, high-contrast, shallow focus, vertical composition
-   - ad-16x9 / ad-1x1: polished, brand-consistent, clean three-point lighting
-   - web-hero: cinematic, wide, atmospheric, slow motion preferred
-
-5. ElevenLabs voice setting guidelines by content type:
-   - Energetic/promotional: stability=0.35, similarityBoost=0.75, style=0.5
-   - Narrative/documentary: stability=0.65, similarityBoost=0.80, style=0.1
-   - Calm/luxury/ASMR: stability=0.82, similarityBoost=0.88, style=0.0
-   - Instructional/corporate: stability=0.70, similarityBoost=0.78, style=0.05
-   Choose based on the script tone and format.
-
-6. enrichedScript must contain every word of the original script unchanged. Only ADD <break time="0.3s"/> or <break time="0.5s"/> SSML pause tags at natural sentence boundaries or for dramatic effect.
-
-7. suggestedHookText: generate ONLY if the config JSON has no hookText field. Make it scroll-stopping: a punchy statement or question in ALL CAPS, ≤7 words. Set to null if hookText exists.
-
-8. suggestedCta: generate ONLY if config has no cta field. text = imperative CTA (≤5 words). subtext = benefit (≤10 words). Set to null if cta exists.
-
-9. continuityNote for scene 1: describe the sensory hook moment. For scenes 2+: describe exactly how this shot connects to the previous one — same subject at a different distance, same light hitting from the same direction, same background surface.
-
-10. Number of clip objects MUST exactly equal the number of clips in the input.
-
-11. suggestedCaptionTheme: generate ONLY if config has no captionTheme field:
-   - Luxury, calm, premium, editorial → "editorial"
-   - Energetic, bold, promotional → "bold"
-   - Corporate, instructional, minimal → "minimal"
-   Set to null if captionTheme exists.
-
-12. The lighting field for each clip MUST describe the SAME light source from the SAME direction as lightingSetup. You may describe how it interacts with the specific subject in this shot, but the source and direction must not change.
-
-13. The colorGrade field for each clip MUST use the SAME palette as the global colorPalette. Never introduce new color temperatures in individual clips.
-
-14. variationAngles: for EACH clip, suggest 3 short alternative creative directions (max 40 chars each). These are used for batch storyboard generation to give the user visual options. Examples: "low angle dramatic upward perspective", "tighter macro crop on texture detail", "warmer golden hour color temperature", "overhead top-down flat lay composition". Each angle should produce a meaningfully different image while maintaining the same subject, lighting direction, and background.
-
-15. If the brief includes a "referenceVideoAnalysis" field, use it to DERIVE your style decisions — but BLEND with the user's own image references:
-    - VIDEO ANALYSIS drives: camera moves, pacing, transitions, color grade, lighting style, overall mood. The reference video is the MOTION and STYLE target.
-    - USER IMAGE REFS (product-*, model-*) drive: the actual subject/content. These are what appears in the video — the product, the person, the brand.
-    - VIDEO REF FRAMES (videoref-*) are supplementary style references extracted from the reference video. Use them to reinforce the visual aesthetic.
-    - The goal: "looks like MY product, moves like THEIR video." Match the reference video's cinematography and energy while featuring the user's actual products/models.
-    - PRODUCTION LEVEL: Match the reference video's scale and intimacy. If the reference is a person posing in a hallway with simple lighting, your scenes should have similar production scope — small accessible spaces, practical lighting, intimate framing. Do NOT escalate a hallway-level video into skyscraper-edge rooftop scenes with panoramic city views. The reference video IS the ceiling for location complexity.
-
-16. When writing enrichedPrompt, apply the relevant prompting framework:
-    - UGC / talking heads → use realism techniques (natural skin, window light)
-    - Cinematic / hero content → use SEAL CAM (Setting, Elements, Atmosphere, Lens, Camera Motion)
-    - Product photography → use product guidelines (surface, scale, reflections)
-    - Brand / lifestyle → use BOPA (Brand, Object, Person, Action)
-    - If the brief includes "imageProvider", tailor prompts accordingly: GPT Image needs more explicit/literal descriptions, Gemini responds to photography terminology.`;
-
-const BRAND_IMAGES_SYSTEM_PROMPT = `You are an expert brand photography art director. You create DirectorPlans for multi-format brand image campaigns. Each image set will be rendered in multiple aspect ratios (9:16 story, 1:1 square, 16:9 landscape), so compositions must work across crops.
-
-Your images must feel like ONE professional photo shoot — not separate stock photos.
-
-You will receive a user message containing:
-1. A PROJECT BRIEF in JSON format with brand, brief, clips (image descriptions), and brand colors
-2. Up to three reference images labeled [STYLE REFERENCE], [SUBJECT REFERENCE], [LOCATION REFERENCE]
-
-OUTPUT FORMAT — return ONLY this JSON object, nothing else:
-
-{
-  "visualStyleSummary": "<1 sentence photography style, e.g. 'Warm editorial product photography on dark wood with golden amber side-light and shallow focus'>",
-  "lightingSetup": "<THE lighting setup for ALL images, e.g. 'warm amber key light from camera-right at 45°, soft diffused fill, dark environment'>",
-  "backgroundDescription": "<THE background/surface for ALL images, e.g. 'dark cracked wood planks with soft warm bokeh in deep background'>",
-  "colorPalette": "<THE color palette for ALL images using descriptive words ONLY — NEVER hex codes like #D4AF37, AI generators render these as visible text>",
-  "clips": [
-    {
-      "sceneIndex": 1,
-      "shotType": "<'hero' | 'detail' | 'lifestyle' | 'flat-lay' | 'texture'>",
-      "enrichedPrompt": "<image description rewritten for AI image generation — see rules below>",
-      "continuityNote": "<what connects this image to the visual series>",
-      "composition": "<e.g. 'centered subject, rule of thirds negative space left, shallow DOF isolates product'>",
-      "lighting": "<references global lightingSetup — same direction, same quality, describe for THIS image>",
-      "colorGrade": "<references global colorPalette — describe how it manifests in THIS specific image>"
-    }
-  ],
-  "suggestedHookText": "<≤7 words, ALL CAPS — scroll-stopping text for social posts, or null>",
-  "suggestedCta": { "text": "<≤5 word action phrase>", "subtext": "<≤10 words>" }
-}
-
-═══════════════════════════════════════════════════════════════
-CRITICAL: ONE-SHOOT VISUAL CONSISTENCY
-═══════════════════════════════════════════════════════════════
-
-The #1 problem with AI-generated images is inconsistency. Your job is to make every image feel like it came from the SAME visual system.
-
-MANDATORY consistency rules — every enrichedPrompt MUST include:
-A) The SAME lighting DIRECTION and QUALITY (from lightingSetup). The key light always comes from the same side with the same color temperature.
-B) The SAME color temperature and palette (from colorPalette). No sudden shifts from warm to cool.
-C) The SAME hero subject/product at different distances and angles.
-D) BACKGROUND rule depends on the brief:
-   - PRODUCT PHOTOGRAPHY (skincare, food, objects on surfaces): SAME background/surface for ALL images. This is critical for product consistency.
-   - FASHION / LIFESTYLE / EDITORIAL (clothing, athleisure, person-focused campaigns): Environments MAY vary between images IF the brief describes multiple locations. What must stay consistent is the MATERIAL PALETTE (concrete, industrial, natural textures) and the LIGHTING SYSTEM. Different rooms/settings that share the same visual language = cohesive campaign. Same gym repeated 5 times = boring catalog.
-
-What SHOULD change between images:
-- Camera distance: extreme close-up → close-up → medium → wide → detail
-- Focus point: texture detail → full product → context/environment
-- Subject state: raw ingredient → product hero → in-use → final beauty shot
-- For fashion/lifestyle: environment can shift (corridor → locker room → outdoor → apartment) while maintaining visual system consistency
-
-═══════════════════════════════════════════════════════════════
-REALISM RULE
-═══════════════════════════════════════════════════════════════
-
-Every scene you write must be plausibly shootable by a real photographer with real equipment in a real, accessible location. Ask yourself: "Could I actually set this up on a normal production budget?"
-
-DO NOT:
-- Put people on building edges, skyscraper rooftops with skyline panoramas, or dangerous/impossible locations
-- Create scenes that require expensive sets, rare locations, or impossible logistics
-- Escalate beyond what the config prompt describes — "rooftop" means a normal rooftop, not a skyscraper ledge with a cinematic city panorama
-- Invent dramatic settings that don't match the reference video's production level
-
-DO:
-- Keep environments grounded and realistic — apartments, studios, streets, parks, gyms, simple rooftops
-- Make creative impact through LIGHTING, FRAMING, and COLOR — not exotic locations
-- RESPECT the config prompt's setting. If it says "parking garage," write a parking garage. If it says "bedroom," write a bedroom. Enhance the PHOTOGRAPHY, not the SETTING.
-- Match the production scope of the reference video if one is provided
-
-Creative impact comes from HOW you shoot, not WHERE you shoot. A woman in a bedroom with perfect golden window light is more scroll-stopping than a woman on a skyscraper edge with a panoramic view.
-
-═══════════════════════════════════════════════════════════════
-ENRICHED PROMPT RULES
-═══════════════════════════════════════════════════════════════
-
-1. Output only the raw JSON object. No markdown fences, no explanatory text.
-
-2. enrichedPrompt MUST be a vivid image description optimized for AI image generation. Maximum 400 characters. Rules:
-   - Start by describing exactly what is in frame — the subject at a specific distance
-   - Include the GLOBAL lighting setup (same direction, same color temperature)
-   - For product photography: include the GLOBAL background (same surface/environment, varying blur)
-   - For fashion/lifestyle: describe THIS scene's specific environment while maintaining the material palette and lighting system
-   - Specify depth of field (e.g. "shallow depth of field, f/1.8 bokeh background")
-   - Use the GLOBAL colorPalette (descriptive words ONLY, NEVER hex codes)
-   - Write as a natural scene description, not a keyword list
-   - NEVER use generic filler like "masterpiece, best quality, 4k, trending"
-   - RESPECT the config prompt's setting. If the user wrote "parking garage," write a parking garage. If they wrote "bedroom," write a bedroom. Enhance the PHOTOGRAPHY (lighting, angle, depth of field), do not reimagine the SETTING.
-
-3. Derive lightingSetup, backgroundDescription, colorPalette from reference images if present. Without images, derive from the brand brief and clip prompts.
-
-4. composition: describe the framing approach for THIS image. Consider that it will be cropped to story (9:16), square (1:1), and landscape (16:9) — center-weighted compositions survive all three crops best.
-
-5. Number of clip objects MUST exactly equal the number of clips in the input.
-
-6. Use the brand brief to understand the brand's identity, heritage, and visual tone. This is the most important context — let it guide your lighting, palette, and styling decisions.
-
-7. When writing enrichedPrompt, apply the product photography framework:
-   - Always describe surface material ("on white marble", "dark slate", "raw linen")
-   - Specify reflection: "matte finish", "glossy catch light", "soft sheen"
-   - One product per frame — multi-product confuses generators
-   - Include scale reference when relevant (hands, objects nearby)
-
-8. When a clip has "shotType" but no "prompt", generate a full enrichedPrompt appropriate for that shot type using the brand brief and product details. Shot types:
-   - "product-hero": Full product beauty shot — the money shot. Product centered, best lighting, maximum desire.
-   - "application-closeup": Product being applied or used. Close on hands, skin, or interaction. Intimate moment.
-   - "lifestyle": Person using product in a natural setting. Environmental context, relaxed feel.
-   - "flat-lay": Overhead editorial arrangement. Product with complementary props on a surface.
-   - "texture-detail": Extreme close-up on material, texture, or surface quality. Sensory hook.
-   - "portrait": Person-focused with product secondary. Face, expression, beauty.
-   Write the enrichedPrompt as if the user had written a detailed prompt — natural, vivid, specific to the brand.
-
-9. If the brief includes a "referenceVideoAnalysis" field, BLEND video style with the user's image references:
-   - VIDEO ANALYSIS drives: color grade, lighting style, composition approach, mood. Match the reference video's visual aesthetic.
-   - USER IMAGE REFS (product-*, model-*) drive: the actual subject/content appearing in images.
-   - VIDEO REF FRAMES (videoref-*) are key frames from the reference video — use as supplementary style references.
-   - Goal: "my products, their visual style." Match the reference video's look while featuring the user's actual products/models.
-   - PRODUCTION LEVEL: Match the reference video's scale and intimacy. If the reference is a person posing in a hallway with simple lighting, keep your scenes at similar production scope — small accessible spaces, practical lighting, intimate framing. The reference video IS the ceiling for location complexity. Do NOT escalate beyond it.`;
+If the brief includes "referenceVideoAnalysis", match its visual aesthetic while featuring the user's actual products/models. The reference video IS the ceiling for production scope.`;
 
 let BEST_PRACTICES_LOADED = '';
 
@@ -392,11 +240,11 @@ async function saveBrandContext(
     voiceSettings: isBrandImages
       ? { stability: 0, style: 0, similarityBoost: 0, toneDescription: '' }
       : {
-          stability: plan.voice.stability,
-          style: plan.voice.style,
-          similarityBoost: plan.voice.similarityBoost,
-          toneDescription: `stability=${plan.voice.stability}, style=${plan.voice.style}`,
-        },
+        stability: plan.voice.stability,
+        style: plan.voice.style,
+        similarityBoost: plan.voice.similarityBoost,
+        toneDescription: `stability=${plan.voice.stability}, style=${plan.voice.style}`,
+      },
   };
   await fs.outputJson(contextPath, context, { spaces: 2 });
   logger.info('Director: brand context saved to cache/brand-context.json');
@@ -443,7 +291,7 @@ function normalizePlan(
       cameraMove: isBrandImages ? '' : (rawClip?.cameraMove ?? 'static wide'),
       lighting: rawClip?.lighting ?? 'natural available light',
       colorGrade: rawClip?.colorGrade ?? 'neutral',
-      pace: isBrandImages ? '' : (rawClip?.pace ?? 'standard'),
+      pace: rawClip?.pace ?? '',
     };
     if (rawClip?.shotType) clip.shotType = rawClip.shotType;
     if (rawClip?.composition) clip.composition = rawClip.composition;
@@ -493,7 +341,7 @@ function logDirectorPlan(plan: DirectorPlan, mode: PipelineMode = 'video'): void
   const clipLines = plan.clips
     .map((c) => {
       const detail = isBrandImages
-        ? (c.composition ?? 'centered subject').slice(0, 42)
+        ? c.enrichedPrompt.slice(0, 42)
         : c.cameraMove.slice(0, 42);
       const label = isBrandImages ? 'Image' : 'Scene';
       return `│    ${label} ${c.sceneIndex}: ${detail.padEnd(42)}│`;
@@ -588,37 +436,37 @@ export async function runDirector(
 
   const brief = isBrandImages
     ? {
-        mode: 'brand-images',
-        brand: config.brand ?? config.client ?? config.title,
-        brief: config.brief,
-        title: config.title,
-        clips: config.clips.map((c, i) => ({
-          sceneIndex: i + 1,
-          prompt: c.prompt ?? '',
-          ...(c.shotType !== undefined && { shotType: c.shotType }),
-        })),
-        imageFormats: config.imageFormats ?? ['story', 'square', 'landscape'],
-        brandColors: assets.brandColors,
-        ...(config.imageProvider !== undefined && { imageProvider: config.imageProvider }),
-      }
+      mode: 'brand-images',
+      brand: config.brand ?? config.client ?? config.title,
+      brief: config.brief,
+      title: config.title,
+      clips: config.clips.map((c, i) => ({
+        sceneIndex: i + 1,
+        prompt: c.prompt ?? '',
+        ...(c.shotType !== undefined && { shotType: c.shotType }),
+      })),
+      imageFormats: config.imageFormats ?? ['story', 'square', 'landscape'],
+      brandColors: assets.brandColors,
+      ...(config.imageProvider !== undefined && { imageProvider: config.imageProvider }),
+    }
     : {
-        brief: config.brief,
-        format: config.format,
-        title: config.title,
-        client: config.client,
-        script: config.script,
-        clips: config.clips.map((c, i) => ({
-          sceneIndex: i + 1,
-          prompt: c.prompt ?? '',
-          duration: c.duration ?? 5,
-        })),
-        transition: config.transition,
-        hookText: config.hookText,
-        cta: config.cta,
-        brandColors: assets.brandColors,
-        ...(config.imageProvider !== undefined && { imageProvider: config.imageProvider }),
-        ...(videoAnalysis !== undefined && { referenceVideoAnalysis: videoAnalysis }),
-      };
+      brief: config.brief,
+      format: config.format,
+      title: config.title,
+      client: config.client,
+      script: config.script,
+      clips: config.clips.map((c, i) => ({
+        sceneIndex: i + 1,
+        prompt: c.prompt ?? '',
+        duration: c.duration ?? 5,
+      })),
+      transition: config.transition,
+      hookText: config.hookText,
+      cta: config.cta,
+      brandColors: assets.brandColors,
+      ...(config.imageProvider !== undefined && { imageProvider: config.imageProvider }),
+      ...(videoAnalysis !== undefined && { referenceVideoAnalysis: videoAnalysis }),
+    };
 
   const contentParts: Anthropic.MessageParam['content'] = [
     { type: 'text', text: `PROJECT BRIEF:\n${JSON.stringify(brief, null, 2)}` },
@@ -664,17 +512,20 @@ export async function runDirector(
   try {
     const client = new Anthropic({ apiKey });
 
-    const basePrompt = isBrandImages ? BRAND_IMAGES_SYSTEM_PROMPT : SYSTEM_PROMPT;
+    const basePrompt = SHARED_SYSTEM_PROMPT + '\n' + (isBrandImages ? BRAND_IMAGES_ADDENDUM : VIDEO_ADDENDUM);
     const systemPrompt = BEST_PRACTICES_LOADED
       ? basePrompt + '\n\n## PROMPT BEST PRACTICES REFERENCE\n' + BEST_PRACTICES_LOADED
       : basePrompt;
 
-    const response = await client.messages.create({
-      model,
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: contentParts }],
-    });
+    const response = await retryWithBackoff(
+      () => client.messages.create({
+        model,
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: contentParts }],
+      }),
+      { attempts: 3, delayMs: 3000, label: 'Director Claude call' },
+    );
 
     const firstBlock = response.content[0];
     const rawJson = firstBlock?.type === 'text' ? firstBlock.text : null;

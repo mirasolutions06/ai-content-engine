@@ -2,6 +2,7 @@ import path from 'path';
 import fs from 'fs-extra';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../utils/logger.js';
+import { retryWithBackoff } from '../utils/retry.js';
 import type { VideoConfig, PipelineMode } from '../types/index.js';
 
 function htmlToText(html: string): string {
@@ -55,12 +56,13 @@ export async function extractBriefFromUrl(url: string): Promise<BriefExtraction>
   logger.step('Extracting product brief with Claude...');
 
   const client = new Anthropic({ apiKey });
-  const result = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 2048,
-    messages: [{
-      role: 'user',
-      content: `Extract product/brand information from this web page content. Return ONLY valid JSON, no markdown fences.
+  const result = await retryWithBackoff(
+    () => client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2048,
+      messages: [{
+        role: 'user',
+        content: `Extract product/brand information from this web page content. Return ONLY valid JSON, no markdown fences.
 
 Schema:
 {
@@ -78,8 +80,10 @@ Extract up to 5 product image URLs. If no images found, return empty array.
 
 Page content:
 ${text}`,
-    }],
-  });
+      }],
+    }),
+    { attempts: 3, delayMs: 3000, label: 'URL brief extraction' },
+  );
 
   const content = result.content[0];
   if (content?.type !== 'text') {
@@ -130,7 +134,7 @@ export async function generateConfigFromUrl(
         const contentType = res.headers.get('content-type') ?? '';
         const ext = contentType.includes('png') ? 'png'
           : contentType.includes('webp') ? 'webp'
-          : 'jpg';
+            : 'jpg';
 
         const filename = i === 0 ? `product.${ext}` : `product-${i + 1}.${ext}`;
         await fs.ensureDir(projectDir);

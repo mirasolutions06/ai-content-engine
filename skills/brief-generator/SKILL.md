@@ -7,6 +7,8 @@ description: "Entry point for all content creation. Triggers on any request to c
 
 You are the entry point for the AI Content Engine. Your job is to take a natural language description of a brand, product, or campaign and produce a valid `config.json` that the pipeline can execute.
 
+Your output quality is measured by QA scores (1-5). Stock-photo-tier configs score 3.0-3.5. Campaign-grade configs score 4.5+. You are aiming for 4.5+.
+
 ## Session Awareness
 
 When invoked:
@@ -35,23 +37,36 @@ Before asking questions, check if this is a returning brand:
 
 ## Workflow
 
-### Step 1: Three-Question Brief (Default Flow)
+### Step 1: Understand the Product
 
-Ask exactly three questions. Everything else is inferred by the Director or filled from research.
+Ask three questions — but make the first two count.
 
-**Question 1 — What?**
-"What brand/product is this for, and what do they sell?"
-Accept: brand name + product description. A URL works too — use `url-to-brief.ts` to auto-extract.
+**Question 1 — What exactly are you shooting?**
+"What brand/product is this for? If you have a product page URL, I can extract everything."
 
-**Question 2 — Who + Where?**
-"Who's the audience, and what platform(s)?"
-Accept: audience description + platform list. Default: "general audience, all platforms."
+When they answer, dig into the physical product:
+- What does the packaging look like? (material, color, shape, lid type)
+- How many products? (single hero vs multi-product campaign)
+- Any reference images? (these matter more than anything else)
 
-**Question 3 — Vibe?**
-"Any visual references, mood, or style direction? (Skip if none)"
-Accept: reference images, mood words, competitor URLs, or "skip."
+If the answer is vague ("skincare brand"), don't proceed yet:
+"Before I generate, I need to know the actual product. Can you share a product image or describe the packaging — glass or plastic? What color? What shape? What's on the label?"
 
-That's it. Three questions, then generate the config. The Director handles cinematography, the pipeline handles everything else.
+A URL works too — use `url-to-brief.ts` (`extractBriefFromUrl` + `generateConfigFromUrl`) to auto-extract. For Shopify sites use `/products.json`.
+
+**Question 2 — What's the visual world?**
+"Describe the visual world — not just the audience. What surfaces, what light, what mood?"
+
+Good answer: "dark moody, weathered wood surfaces, golden amber light, editorial feel"
+Weak answer: "clean and modern" — push back: "Clean and modern is a starting point. Give me a reference — a brand, a photo, a Pinterest board, a competitor you admire."
+
+Accept: reference images, mood boards, Pinterest URLs, competitor URLs, specific mood words.
+
+**Question 3 — Platform and format**
+"Where is this going? That determines format and shot count."
+Accept: platform list. Default: Instagram + TikTok.
+
+That's it. Three questions, then generate the config. The Director handles cinematography details, the pipeline handles everything else.
 
 **Advanced options** — available if the user volunteers them, but never prompted:
 - Budget sensitivity (low / normal / high — affects clip count)
@@ -59,18 +74,17 @@ That's it. Three questions, then generate the config. The Director handles cinem
 - Specific videoProvider or imageProvider
 - Template to start from (product-launch, brand-story, before-after)
 
-**URL shortcut**: If the user provides a product page URL instead of answering questions, use `url-to-brief.ts` (`extractBriefFromUrl` + `generateConfigFromUrl`) to auto-extract brand, product, audience, images, and mood. Skip to Step 3.
+**URL shortcut**: If the user provides a product page URL instead of answering questions, use `url-to-brief.ts` to auto-extract brand, product, audience, images, and mood. Skip to Step 3.
 
-### Step 2: Research
+### Step 2: Research (Product-First)
 
-Use web search to inform the brief. Search for:
+1. **If URL provided** — fetch the product page. Use `/products.json` for Shopify sites (they render client-side so WebFetch gets empty JS). Extract: product name, description, price, packaging details, available images. Download product images as references — these are the single biggest quality lever.
 
-1. **Brand website** — if a URL was given, fetch it to understand visual tone and messaging
-2. **Competitor content** — search `"{niche}" content marketing examples` to find what's working
-3. **Platform trends** — search `"{platform}" trending content {niche} 2026` for each target platform
-4. **Voice and tone** — use the brand's own website copy to match their voice
+2. **Brand website** — if no URL, search for the brand to understand their visual identity. Look at: their existing photography style, color palette, product shots. Match THEIR tone, not a generic "luxury" tone.
 
-This research directly informs scene prompts, script tone, and CTA strategy.
+3. **DO NOT** search for "{niche} trending content 2026" or "competitor content marketing examples." Trend-chasing produces generic output. Understanding the actual product produces campaign-grade output.
+
+The goal of research: write prompts with specific packaging language ("amber glass jar with bamboo lid") rather than generic language ("bottle").
 
 ### Step 3: Choose Mode
 
@@ -103,7 +117,9 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
     {
       "prompt": "Visual scene description, 50-300 chars. See prompt rules below.",
       "duration": 5,
-      "outputType": "image | video | animation"
+      "outputType": "image | video | animation",
+      "imageFormat": "story | square | landscape",
+      "refs": ["product-1.jpg", "model-1.jpg"]
     }
   ],
   "transition": "crossfade | cut | wipe",
@@ -142,9 +158,12 @@ Produce a valid JSON file matching the `VideoConfig` TypeScript interface. Here 
 ### Brand-Images Config Best Practices
 
 **`products` field (strongly recommended):**
-List exact product(s). Prevents Gemini from inventing phantom products.
+List exact product(s) with packaging details. Prevents Gemini from inventing phantom products.
 ```json
-"products": ["amber glass dropper serum bottle"]
+"products": [
+  "whipped shea body butter in glass jar with wooden lid",
+  "raw shea oil in glass dropper bottle with gold cap"
+]
 ```
 
 **`skipAutoRefs` field (use when appropriate):**
@@ -174,14 +193,23 @@ Named files in the project directory get labeled in the Gemini prompt:
 More refs = better consistency. Nike used 6 refs and got campaign-grade output. Ama Shea used zero refs and still scored 4.5-5.0/5 with good prompts.
 
 **Per-clip `refs` (smart reference selection) — CRITICAL:**
-ALWAYS assign per-clip `refs` when a project has model, product, style, AND location refs. Without them, every ref floods every generation — degrading quality. This has caused issues repeatedly across multiple projects.
+ALWAYS assign per-clip `refs` when a project has multiple ref types. Without them, every ref floods every generation — degrading quality. This has caused issues repeatedly across multiple projects.
+
+When `modelSheet: true` is set, any clip featuring a model MUST include all three model refs explicitly:
 ```json
 {
-  "prompt": "Hero shot of shea butter...",
-  "refs": ["product-1.jpg", "model-1.jpg"]
+  "prompt": "Woman applying serum at vanity...",
+  "refs": ["model-1.jpg", "model-sheet.jpg", "model-body.jpg", "product-1.jpg"]
 }
 ```
-Scene 1 (overview) might use all refs; individual hero shots should use only the matching product ref. Detail crops might use only the product ref. Assign deliberately.
+Product-only clips should NOT include model refs:
+```json
+{
+  "prompt": "Bottle on marble surface...",
+  "refs": ["product-1.jpg", "product-2.jpg"]
+}
+```
+Never rely on auto-include — list every ref explicitly so it's transparent and controllable. Scene 1 (overview) might use all refs; detail crops might use only the product ref. Assign deliberately.
 
 **Prompts must match the provided references.** If user provides a `location-1.jpg` of an English manor, the prompt should describe that setting — NOT a generic studio. If a `model-1.jpg` shows a specific person, describe that person. Never default to "studio" when environmental refs exist.
 
@@ -196,45 +224,55 @@ Paste image URLs (Pinterest pins, direct image URLs) to download as style refere
 ```
 Combine with per-clip `refs` to assign mood board images to specific scenes: `"refs": ["product-1.jpg", "style-2.jpg"]`.
 
-**Prompt style for brand-images:**
-Write LOOSE, evocative prompts — not hyper-specific descriptions. The Director enriches them. Over-specifying constrains Gemini.
+### What Separates 4.5+ From 3.5
 
-Good: `"Hero product shot on dark weathered wood surface, surrounded by raw shea nuts and dried botanicals, warm golden-amber key light from camera-right, shallow depth of field, editorial product photography"`
+This is the difference between stock-photo output and campaign-grade output. Every config you generate must hit the right column.
 
-Bad: `"Glass jar of whipped shea body butter with wooden lid on dark weathered wood, raw shea nuts and a small bowl of golden shea oil beside it, warm amber key light from camera-right at exactly 45 degrees, f/2.8 shallow depth of field"`
+| Element | Stock-photo tier (3.0-3.5) | Campaign tier (4.5+) |
+|---|---|---|
+| Materials | "bottle on a surface" | "amber glass jar with bamboo lid on dark weathered wood" |
+| Lighting | "studio lighting" or "dramatic lighting" | "warm amber key light from camera-right at 45 degrees" |
+| Lens | (none specified) | "85mm f/1.4 shallow focus", "35mm low angle" |
+| Color | "warm tones" | "warm amber highlights, deep chocolate shadows, ivory cream accents" |
+| Negations | (none) | "NOT a fitness catalog", "luxury that feels handmade, not factory" |
+| Background | "marble surface" | "dark cracked wood planks with soft warm bokeh in deep background" |
+| Action | "person using product" | "woman's fingertips pressing into the creamy surface, leaving an impression" |
+| Format mixing | all same format | story for portraits, square for products, landscape for wide shots |
+| Refs | (none or all-to-all) | per-clip refs: hero gets all refs, detail gets product-only |
 
-### Scene Prompt Rules
+Every prompt you write should read like a camera direction to a photographer, not a stock photo search query.
 
-#### Visual Consistency (MOST IMPORTANT)
+### Scene Structure — Learn From What Works
 
-ALL scenes must share the SAME:
-- **Lighting direction** — pick ONE setup and use it in every prompt
-- **Background/surface** — pick ONE setting and repeat it
-- **Color temperature** — pick ONE palette and keep it consistent
-- **Subject** — the same product/person in EVERY scene
-- **Match refs** — if the user provided a location ref (outdoor/architectural), prompts should use that environment. If they provided a model ref, describe that person. Never default to "studio" when environmental refs exist.
+Great configs don't follow a rigid formula. Each campaign's structure emerges from the product and brand. Here's what actually scored 4.5+:
 
-#### Progressive Reveal Shot Framework
+**Product photography** (Ama Shea Gift Set, 4.72/5 — 8 images):
+Unboxing → product lineup → individual hero x3 → lifestyle hands → application → flat lay with heritage textile.
+Each of 3 products gets its own hero. The "hook" is the gift box opening.
 
-Structure scenes as a single continuous photo shoot where only the camera distance changes:
+**Fashion editorial** (Gymwear 2-Piece, 4.56/5 — 5 images):
+Hallway stride → bedroom morning → rooftop golden hour → fabric detail → flat lay with attitude.
+Multiple environments but unified lighting system. The hook is confidence, not a detail shot.
 
-| Scene | Shot Type | Purpose | Example |
-|---|---|---|---|
-| 1 (Hook) | Extreme close-up or detail | Sensory curiosity — stop the scroll | "Extreme close-up of golden serum drops on fingertip" |
-| 2 (Context) | Close-up | Reveal more — what IS this? | "Close-up of hands holding the serum bottle" |
-| 3 (Hero) | Medium or wide | Money shot — full product in context | "Medium shot of the bottle on marble surface with botanicals" |
-| 4 (CTA) | Detail or medium | Reinforce desire — support the call to action | "Detail shot of serum texture catching the light" |
+**Luxury sportswear** (Cole Buxton, 4.3/5 — 5 images):
+Estate full-body → street motion → sitting portrait → over-shoulder silhouette → texture macro.
+Progression: scale → movement → stillness → anonymity → material.
 
-#### Prompt Writing Rules
+**The common thread:** each scene is a distinct moment with a different camera distance. Lighting stays consistent. Subject stays consistent. The arc fits the brand's story.
 
-1. **Length**: 50-300 characters per prompt. Under 50 = too vague. Over 400 = gets truncated.
+### Prompt Writing Rules
+
+1. **Length**: 200-600 characters per prompt (~40-100 words). Under 200 = too vague for campaign quality. Over 700 = may get truncated. Nike-level prompts average 400-600 chars — that's the target.
 2. **NO text/logos/typography**: AI cannot render readable text. Never include "text", "logo", "font", "write", "saying", "reads", "letter", "word", "headline" in prompts.
-3. **Visual style cues required**: Every prompt needs at least one style keyword: lighting, shadow, cinematic, mood, warm, cool, golden, bokeh, ambient, backlit, editorial, etc.
-4. **One moment per prompt**: "Woman applying serum in golden light" not "Woman picks up serum, applies it, then smiles."
-5. **Repeat the lighting**: Same lighting in every prompt.
-6. **Repeat the background**: Same surface/environment in every prompt.
-7. **Vary only the camera**: Each scene differs only in camera distance.
-8. **Typical clip count**: 3-5 clips standard. Warn if >6.
+3. **Specific materials required**: Name the actual packaging — "glass jar with wooden lid", "glass dropper bottle with gold cap", "small round tin". Never just "bottle" or "container".
+4. **Camera language required**: Every prompt needs a lens or distance — "85mm f/1.4", "35mm low angle", "macro distance", "overhead flat lay".
+5. **Lighting direction required**: Every prompt specifies where light comes from — "warm amber key light from camera-left", "soft diffused window light", "backlight creating golden rim".
+6. **Same lighting in every prompt**: Pick ONE setup and repeat it across all scenes.
+7. **Same background in every prompt**: Pick ONE surface/environment (exception: fashion campaigns with multiple locations keep the same material palette and lighting system).
+8. **One moment per prompt**: "Woman applying serum in golden light" not "Woman picks up serum, applies it, then smiles."
+9. **Typical clip count**: 4-8 clips for brand-images, 3-5 for video. Warn if >8.
+10. **Per-clip `imageFormat`**: Mix formats across clips — story for portraits, square for products, landscape for wide shots.
+11. **Write like a cinematographer's shot list**: Every prompt must read like a camera direction — subject, distance, lens, f-stop, lighting direction and quality, surface materials, depth of field. The Director enriches mood and consistency, but the BASE prompt needs real photography language. Don't micromanage props, but never skip camera specs.
 
 ### Video-Specific Prompt Tips
 
@@ -250,11 +288,13 @@ Structure scenes as a single continuous photo shoot where only the camera distan
 
 | Check | Rule | Action if fails |
 |---|---|---|
-| Prompt length | 50-300 chars each | Rewrite |
+| Prompt length | 200-600 chars each (~40-100 words) | Expand if under 200, trim if over 700 |
 | Text/logo mentions | No text rendering words | Remove, describe visuals only |
-| Style cues | At least one per prompt | Add lighting/color/mood |
+| Specific materials | Actual packaging names, not "bottle" | Rewrite with specifics |
+| Camera language | Lens or distance in every prompt | Add focal length or shot distance |
+| Lighting direction | Same light source in every prompt | Unify |
 | Script length | `words / 2.5 <= time_limit` | Trim |
-| Clip count | Warn if >6 | Suggest consolidation |
+| Clip count | Warn if >8 | Suggest consolidation |
 | voiceId | Required if script is set | Ask user |
 | Format | Must be valid | Fix |
 
@@ -262,7 +302,7 @@ Structure scenes as a single continuous photo shoot where only the camera distan
 
 | Step | Cost | Condition |
 |---|---|---|
-| Director (Claude) | ~$0.10 | Always |
+| Director (Claude) | ~$0.03-0.05 | Always |
 | Asset sourcing (Gemini) | ~$0.05-0.12 | Style ref + optional extras |
 | Storyboard frames (Gemini) | ~$0.08 x clips | Default imageProvider |
 | Storyboard frames (GPT Image) | ~$0.04-0.08 x clips | imageProvider: "gpt-image" |
@@ -273,7 +313,7 @@ Structure scenes as a single continuous photo shoot where only the camera distan
 | Video clips (Sora 2 720p) | ~$1.20/4s, ~$2.40/8s | Per clip — native audio |
 | Video clips (Sora 2 1080p) | ~$2.00/4s, ~$4.00/8s | Per clip — native audio, higher res |
 | Video clips (Veo 3.1) | ~$4.50/6s, ~$6.00/8s | Per clip — Google |
-| Brand images (Gemini) | ~$0.08 x clips x formats | brand-images mode |
+| Brand images (Gemini) | ~$0.08 x clips | brand-images mode (1 image per clip) |
 
 Show breakdown and total.
 
@@ -298,7 +338,7 @@ After saving config.json, don't stop. Flow into generation based on mode:
 Run the pipeline immediately — cost is low (~$0.08/image). Show results with QA scores when done, then offer copy generation.
 
 **video/full mode:**
-Run `--dry-run` to trigger the Director (~$0.10, cached). Show the Director's creative plan:
+Run `--dry-run` to trigger the Director (~$0.03-0.05, cached). Show the Director's creative plan:
 ```
 Director's creative plan:
   Visual style: {visualStyleSummary}
@@ -321,66 +361,161 @@ Never say "run step 2". Say "Generating your images now..." or "Want to preview 
 
 ## Templates
 
-Pre-built configs in `projects/_templates/`. Use as a starting point when user's intent matches:
+Templates exist in `projects/_templates/` as structural starting points (shot count, mode, format). NEVER copy template prompts into a config — they are deliberately generic. Always write fresh prompts based on the actual product, packaging, and creative vision.
 
-| Template | Mode | Scenes | Best for |
-|---|---|---|---|
-| `product-launch` | brand-images | 5 images | New product announcements |
-| `brand-story` | video | 6 clips | Brand awareness |
-| `before-after` | brand-images | 4 images | Transformation results |
-
-To use: `npm run new-project -- --name {slug} --template {name} --brand "{Brand}"`
+To scaffold: `npm run new-project -- --name {slug} --template {name} --brand "{Brand}"`
 
 ## Examples
 
-### Standard Flow
+### Brand-Images — Campaign Grade (4.72/5 avg QA)
 
-**User**: "Create content for GlowLab — they sell luxury organic skincare serums. Target audience is women 25-40 on Instagram and TikTok."
+**User**: "Create content for Ama Shea — luxury African shea butter gift set. Three products in a gold-embossed keepsake box."
 
-**Generated config.json:**
+**Why this config scores high:**
+- **Specific product language**: "glass jar with wooden lid", "glass dropper bottle with gold cap", "small round tin" — not "bottle" or "container"
+- **Unified lighting**: "warm golden key light from camera-left" or "warm amber side light" in EVERY scene
+- **Material vocabulary**: "dark satin lining", "dark weathered wood", "dark slate" — real surfaces
+- **Camera specs**: "85mm lens shallow focus", "macro lens detail"
+- **Narrative arc**: unboxing → lineup → hero x3 → lifestyle → application → heritage flat lay
+- **Per-clip format variety**: landscape for wide shots, square for products, story for portraits
+- **Negation in brief**: "luxury that feels handmade, not factory"
+
+**Generated config.json** (showing 4 of 8 clips):
 
 ```json
 {
-  "mode": "full",
-  "format": "youtube-short",
-  "title": "glowlab-serum-launch",
-  "client": "GlowLab",
-  "brand": "GlowLab",
-  "brief": "GlowLab is a luxury organic skincare brand specializing in high-performance serums. Their target audience is health-conscious women aged 25-40 who value clean beauty and self-care rituals. Visual tone: minimal, warm, editorial.",
-  "script": "Your skin deserves more than chemicals. GlowLab crafts each serum from organic botanicals, cold-pressed and concentrated for maximum glow. One drop. That's all it takes. Feel the difference in your first week. Your radiance, reimagined.",
-  "voiceId": "USER_MUST_SPECIFY",
+  "mode": "brand-images",
+  "title": "ama-shea-gift-set",
+  "brand": "Ama Shea",
+  "brief": "Ama Shea Gift Set launch campaign. A luxury African shea butter skincare collection rooted in Ghanaian heritage — three signature products in a gold-embossed keepsake box. Visual tone: warm golden amber lighting, dark surfaces, raw ingredients, West African textiles. Premium but grounded — luxury that feels handmade, not factory.",
+  "products": [
+    "whipped shea body butter in glass jar with wooden lid",
+    "raw shea oil in glass dropper bottle with gold cap",
+    "shea lip balm in small round tin",
+    "branded gift box with gold embossed Ama Shea logo"
+  ],
+  "skipAutoRefs": ["style", "location"],
   "clips": [
     {
-      "prompt": "Extreme close-up of a single golden serum drop falling from the dropper in slow motion, soft diffused window light from camera-left, clean white marble surface, warm amber tones, shallow depth of field",
-      "duration": 5
+      "prompt": "Luxury gift box partially open revealing three skincare products nestled inside on dark satin lining, warm golden key light from camera-left, dramatic chiaroscuro, shallow depth of field on the box edge, dark moody background, premium unboxing moment, editorial product photography",
+      "imageFormat": "landscape"
     },
     {
-      "prompt": "Close-up of hands gently holding the frosted glass serum bottle, soft diffused window light from camera-left, clean white marble surface, warm amber tones, editorial beauty photography",
-      "duration": 5
+      "prompt": "Hero close-up of whipped shea body butter in glass jar with wooden lid, surrounded by raw shea nuts and dried botanicals, warm golden-amber key light from camera-right, shallow depth of field, earthy muted tones, editorial product photography",
+      "imageFormat": "square"
     },
     {
-      "prompt": "Medium shot of the serum bottle standing on the marble surface with fresh botanicals arranged around it, soft diffused window light from camera-left, warm amber tones, luxury product photography",
-      "duration": 5
+      "prompt": "Small round tin of shea lip balm open to show creamy texture inside, a single raw shea nut beside it on dark slate, warm directional light, intimate macro composition, 85mm lens shallow focus, earthy tones with warm highlights",
+      "imageFormat": "square"
     },
     {
-      "prompt": "Detail shot of serum texture glistening on fingertips, the bottle softly blurred in the background on marble, soft diffused window light from camera-left, warm amber tones, shallow focus",
-      "duration": 5
+      "prompt": "Overhead flat lay of closed gift box centered on woven kente cloth, raw shea nuts and dried lavender scattered around edges, gold leaf accents, dark slate surface peeking through, soft even studio lighting, luxury heritage composition",
+      "imageFormat": "landscape"
     }
-  ],
-  "transition": "crossfade",
-  "captions": true,
-  "captionStyle": "word-by-word",
-  "captionTheme": "editorial",
-  "hookText": "YOUR SKIN DESERVES BETTER",
-  "cta": {
-    "text": "Try GlowLab Today",
-    "subtext": "Organic serums that actually work"
-  },
-  "music": true,
-  "musicVolume": 0.12,
-  "imageFormats": ["story", "square", "landscape"]
+  ]
 }
 ```
+
+### Fashion Editorial — Campaign Grade (4.56/5 avg QA)
+
+**User**: "Steel blue women's gym set — crop top and leggings. NOT a fitness catalog. Think athleisure as fashion."
+
+**Why this scores high:**
+- **Negation defines the brand**: "NOT a fitness catalog" — this shapes every creative decision
+- **One color pop**: "steel blue is the only color pop against darker/moodier backgrounds"
+- **Per-clip refs**: each scene lists exactly which refs to use
+- **Multiple environments BUT unified lighting system**: hallway, bedroom, rooftop, studio — same warm side-light language
+- **Attitude in flat-lay**: "arranged with attitude, not perfectly folded" — personality, not formula
+
+```json
+{
+  "mode": "brand-images",
+  "title": "gymwear-2piece",
+  "brief": "Fashion-forward TikTok campaign for a women's steel blue 2-piece gym set (crop top + high-waist leggings). This is NOT a fitness catalog. Think: athleisure as fashion. Confident, sensual, editorial. The steel blue color must POP against darker/moodier backgrounds.",
+  "products": [
+    "Steel blue scoop-neck crop top — seamless ribbed fabric, wide straps, fitted silhouette",
+    "Steel blue high-waist leggings — seamless ribbed fabric, ankle-length, body-contouring fit"
+  ],
+  "skipAutoRefs": ["style", "location"],
+  "clips": [
+    {
+      "prompt": "Fashion editorial full-body shot of Black woman in steel blue crop top and matching leggings, walking confidently toward camera down a dim warm-toned hallway, warm side-light from a doorway casting a long shadow on dark wooden floorboards, 35mm low angle",
+      "imageFormat": "story",
+      "refs": ["model-1.jpg", "product-1.png", "product-2.png"]
+    },
+    {
+      "prompt": "Close-up waist-to-thigh detail shot of steel blue high-waist leggings on dark skin, hands adjusting the waistband, showing the seamless ribbed texture and body-contouring fit, dramatic directional light raking across the fabric from the side, dark moody background, macro distance",
+      "imageFormat": "square",
+      "refs": ["model-1.jpg", "product-1.png"]
+    },
+    {
+      "prompt": "Moody editorial flat-lay on dark weathered wood surface — steel blue crop top and leggings arranged with attitude, not perfectly folded, one strap draped off the edge, harsh directional light from one side creating deep shadows, the blue fabric pops against the dark surface, overhead shot with cinematic contrast",
+      "imageFormat": "story",
+      "refs": ["product-1.png", "product-2.png"]
+    }
+  ]
+}
+```
+
+### Cinematic Campaign — Gold Standard (Nike "Own the Morning")
+
+**User**: "Nike running campaign. Black Nike Dri-FIT half-zip, electric orange Alphafly NEXT% shoes. Pre-dawn urban running. Raw, cinematic."
+
+**Why this is the gold standard:**
+- **Specific lens per shot**: "35mm anamorphic", "85mm f/1.4", "24mm ultra-wide", "85mm macro" — every scene has a different focal length chosen for the composition
+- **Lighting direction in every prompt**: "sodium streetlight from camera-left painting half his face amber and leaving the other half in deep shadow" — not just "dramatic lighting"
+- **Exact product color names**: "electric orange-volt with purple swoosh and rainbow gradient midsole" — not "orange shoes"
+- **Camera position specified**: "shot from behind at a low angle", "shot at waist level looking slightly up", "extreme low-angle close-up"
+- **Action micro-details**: "breath condensing in freezing air", "water exploding outward frozen in mid-splash", "sweat visible on his forearms"
+- **Environment textures**: "wet concrete floor reflecting overhead lights in long streaks", "cracked wet asphalt", "rain-slicked city road"
+- **Format variety**: landscape (epic scale), story (portraits), square (product/detail)
+
+**Every prompt describes a *specific photograph* — not a mood, not a vibe, not a stock photo search.**
+
+Example prompts (note: 400-600 chars each):
+
+```
+"Lone runner as a small dark figure sprinting through a vast concrete highway underpass at
+pre-dawn, rows of fluorescent tube lights on the ceiling creating symmetrical converging lines
+toward bright golden dawn light flooding through the far exit, wet concrete floor reflecting
+overhead lights in long streaks, graffiti-tagged concrete pillars on both sides, orange Alphafly
+shoes the only colour in the grey scene, breath condensing in freezing air, 35mm anamorphic lens
+with natural flare from the exit light, epic cinematic urban scale"
+
+"Extreme low-angle close-up of Nike Alphafly NEXT% shoes in electric orange-volt with purple
+swoosh and rainbow gradient midsole mid-stride through a deep puddle on cracked wet asphalt,
+water exploding outward frozen in mid-splash, puddle surface reflecting a single amber streetlight
+and the dark silhouette of the runner above, shallow depth of field blurring background into warm
+bokeh circles, rain-slicked urban road texture, 85mm macro"
+```
+
+This is the standard. Every config you generate should aim for this level of photographic specificity.
+
+### Model + Product Campaign — Refs Pattern
+
+When a campaign has both product shots and model editorial, the refs must be explicit per clip:
+
+```json
+"modelSheet": true,
+"clips": [
+  {
+    "prompt": "Product on marble surface, morning light from camera-left...",
+    "imageFormat": "square",
+    "refs": ["product-1.jpg", "product-2.jpg"]
+  },
+  {
+    "prompt": "Woman applying serum at vanity, mirror reflection...",
+    "imageFormat": "story",
+    "refs": ["model-1.jpg", "model-sheet.jpg", "model-body.jpg", "product-1.jpg"]
+  }
+]
+```
+
+Rules:
+- Product-only scenes: only product refs. No model refs.
+- Model scenes: ALL three model refs (`model-1.jpg`, `model-sheet.jpg`, `model-body.jpg`) + relevant product refs.
+- Detail/hands scenes (close-up of hands using product): still include model refs for skin tone consistency.
+- Never omit `model-sheet.jpg` or `model-body.jpg` from model scenes — they're the identity anchors.
 
 ### URL Shortcut
 

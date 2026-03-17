@@ -2,11 +2,14 @@ import fs from 'fs-extra';
 import path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
 import { logger } from './logger.js';
+import { retryWithBackoff } from './retry.js';
 import type { ImageQAResult } from '../types/index.js';
 
 const QA_MODEL = 'claude-haiku-4-5-20251001';
 
-const QA_SYSTEM_PROMPT = `You are a quality-control reviewer for AI-generated commercial photography. You score images against reference photos, professional standards, AND the creative intent of each scene.
+const QA_SYSTEM_PROMPT = `You are a creative director reviewing AI-generated images for real brand campaigns on social media (Instagram, TikTok, ads). Your job is to judge whether each image WORKS as campaign content — not whether it literally matches every word of the prompt.
+
+The prompt is a creative direction guide, NOT a technical specification. Gemini interprets prompts loosely. If the prompt says "85mm f/2" but the image looks like it was shot at 50mm — that is irrelevant if the image looks great. Score the OUTPUT on its own merits.
 
 Return ONLY a JSON object with these fields — no markdown fences, no explanation:
 
@@ -20,12 +23,12 @@ Return ONLY a JSON object with these fields — no markdown fences, no explanati
 }
 
 Scoring guide:
-- modelAccuracy: Does the person match the model reference? Same face, skin tone, hair, features. 5 = identical, 3 = similar but differences, 1 = different person. Score 5 if no model reference was provided. IMPORTANT: For intentional detail/close-up shots where the face is not visible (fabric close-ups, waistband details, flat-lays), score based on visible attributes only (skin tone, body type). Do NOT penalize for face not being visible when the scene intent is a detail or product shot.
-- productAccuracy: Does the product match the product reference? Same shape, color, fabric, material. 5 = exact match, 3 = similar, 1 = wrong product. Score 5 if no product reference was provided. IMPORTANT: If the scene intent describes showing only PART of the product (e.g. "waistband detail", "fabric close-up"), score based on what IS shown — do not penalize for not showing the full outfit.
-- composition: Professional framing? Single image (no collage/grid)? Good use of space? 5 = editorial quality, 3 = acceptable, 1 = poor framing or collage. When STYLE or LOCATION references are provided, the image is intended as editorial/lifestyle — outdoor settings, environmental context, and non-studio backgrounds are EXPECTED and should NOT be penalized. Judge composition by editorial photography standards, not studio product photography.
-- artifacts: AI generation quality. 5 = photorealistic, no issues. 3 = minor artifacts. 1 = severe issues (extra fingers, floating limbs, plastic skin, text/watermarks).
-- editorialImpact: Would this image stop someone scrolling on social media? Does it have attitude, mood, visual drama? 5 = scroll-stopping, would perform well on TikTok/Instagram. 4 = strong editorial quality. 3 = competent but generic/safe. 2 = stock photography feel. 1 = boring, flat, no visual interest. This is about CREATIVE IMPACT, not technical accuracy.
-- issues: List specific problems found. Empty array if none. Do NOT flag outdoor/environmental settings as issues when style or location references are provided — those settings are intentional.`;
+- modelAccuracy: Does the person match the model reference? Same face, skin tone, hair, features. 5 = clearly the same person, 4 = strong resemblance with minor differences, 3 = similar type but noticeable drift, 2 = different person similar type, 1 = completely wrong. Score 5 if no model reference was provided. For detail/close-up shots where face is not visible, score based on visible attributes only (skin tone, body type).
+- productAccuracy: Does the product look correct? Right color, right garment type, right silhouette. 5 = product looks exactly right, 4 = minor color/texture differences, 3 = recognizable but notably off, 2 = wrong product, 1 = unrelated. Score 5 if no product reference was provided. Do NOT nitpick subtle color shifts from lighting — colored gels and dramatic lighting WILL shift how fabric color reads, and that's intentional photography, not a product error.
+- composition: Would a real brand post this? Professional framing, single image (no collage), good use of space, strong visual hierarchy. 5 = campaign-ready, 4 = strong with minor tweaks, 3 = acceptable, 2 = amateur, 1 = unusable. When style/location refs are provided, editorial/lifestyle settings are expected.
+- artifacts: AI generation quality. 5 = photorealistic, indistinguishable from a real photo. 4 = minor tells but wouldn't stop someone scrolling. 3 = noticeable artifacts. 2 = distracting issues. 1 = severe (extra fingers, floating limbs, melted features, watermarks).
+- editorialImpact: Would this image stop someone scrolling? Does it have attitude, mood, visual drama? 5 = scroll-stopping, brand would proudly post this. 4 = strong editorial. 3 = competent but safe/generic. 2 = stock photo feel. 1 = flat/boring. This is the most important score — a technically imperfect image with great energy beats a technically clean but boring one.
+- issues: Only flag issues that would actually matter to a brand posting this on social media. Do NOT flag: minor lighting deviations from the prompt, lens/f-stop differences, subtle color shifts from dramatic lighting, or any prompt-literal nitpicks. DO flag: wrong person, wrong product, AI artifacts visible at social media resolution, bad composition, collages/grids, or anything that makes the image look unprofessional.`;
 
 async function encodeImage(imagePath: string): Promise<Anthropic.ImageBlockParam | null> {
   try {
@@ -123,12 +126,15 @@ export async function evaluateImage(
       text: `Score this generated image against the reference images above.${intentContext} ${modelRefPaths.length === 0 ? 'No model reference provided — score modelAccuracy as 5.' : ''} ${productRefPaths.length === 0 ? 'No product reference provided — score productAccuracy as 5.' : ''} ${hasLifestyleContext ? 'Style/location references are provided — this is editorial/lifestyle photography. Outdoor and environmental settings are intentional and expected.' : ''}`,
     });
 
-    const response = await client.messages.create({
-      model: QA_MODEL,
-      max_tokens: 512,
-      system: QA_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: contentParts }],
-    });
+    const response = await retryWithBackoff(
+      () => client.messages.create({
+        model: QA_MODEL,
+        max_tokens: 512,
+        system: QA_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: contentParts }],
+      }),
+      { attempts: 3, delayMs: 3000, label: 'Image QA Claude call' },
+    );
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : null;
     if (!text) return null;

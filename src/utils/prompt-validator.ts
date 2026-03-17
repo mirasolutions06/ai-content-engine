@@ -11,23 +11,27 @@ const TEXT_PATTERNS = /\b(text|logo|typography|font|write|writing|saying|reads|l
 
 const STYLE_KEYWORDS = /\b(lighting|light|shadow|cinematic|mood|tone|color|colour|warm|cool|dark|bright|soft|dramatic|golden|neon|pastel|muted|vibrant|editorial|minimal|luxury|gritty|bokeh|ambient|backlit|silhouette)\b/i;
 
+const LENS_KEYWORDS = /\b(\d+mm|macro|wide|telephoto|overhead|flat lay|low angle|eye level)\b/i;
+
+const LIGHTING_DIRECTION = /\b(camera-left|camera-right|from above|from below|backlight|rim light|key light|window light|side light|overhead light|directional|from the left|from the right)\b/i;
+
 /** Validate a single scene prompt for common issues. */
 export function validateScenePrompt(prompt: string, sceneIndex: number): ValidationWarning[] {
   const warnings: ValidationWarning[] = [];
 
-  if (prompt.length < 20) {
+  if (prompt.length < 200) {
     warnings.push({
       sceneIndex,
       field: 'prompt',
-      message: `Scene ${sceneIndex} prompt is very short (${prompt.length} chars). Aim for 50-300 chars with visual detail.`,
+      message: `Scene ${sceneIndex} prompt is short (${prompt.length} chars). Aim for 200-600 chars with lens, lighting, and material detail.`,
     });
   }
 
-  if (prompt.length > 400) {
+  if (prompt.length > 700) {
     warnings.push({
       sceneIndex,
       field: 'prompt',
-      message: `Scene ${sceneIndex} prompt exceeds 400 chars (${prompt.length}). Kling may truncate it.`,
+      message: `Scene ${sceneIndex} prompt exceeds 700 chars (${prompt.length}). May get truncated.`,
     });
   }
 
@@ -44,6 +48,22 @@ export function validateScenePrompt(prompt: string, sceneIndex: number): Validat
       sceneIndex,
       field: 'prompt',
       message: `Scene ${sceneIndex} prompt has no visual style cues (lighting, color, mood). Add style direction for better results.`,
+    });
+  }
+
+  if (!LENS_KEYWORDS.test(prompt)) {
+    warnings.push({
+      sceneIndex,
+      field: 'prompt',
+      message: `Scene ${sceneIndex} prompt has no camera language (lens, focal length, shot distance). Add "85mm f/1.4", "35mm wide", "macro", etc.`,
+    });
+  }
+
+  if (!LIGHTING_DIRECTION.test(prompt)) {
+    warnings.push({
+      sceneIndex,
+      field: 'prompt',
+      message: `Scene ${sceneIndex} prompt has no lighting direction. Add "from camera-left", "backlight", "rim light", "window light from above", etc.`,
     });
   }
 

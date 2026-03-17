@@ -140,12 +140,14 @@ export interface VideoConfig {
   colorGrade?: boolean;
   /** Image generation provider. Default: 'gemini'. */
   imageProvider?: ImageProvider;
-  /** Director model override. Default: 'claude-opus-4-6'. */
+  /** Director model override. Default: 'claude-sonnet-4-6'. */
   directorModel?: 'claude-opus-4-6' | 'claude-sonnet-4-6';
   /** Explicit product list. Only these products should appear in generated images. Prevents Gemini from inventing products mentioned in the brief but not in references. */
   products?: string[];
   /** Skip auto-sourcing style and/or location references. Use when auto-generated refs add noise (e.g. studio skincare campaigns). */
   skipAutoRefs?: ('style' | 'location')[];
+  /** Skip Director enrichment — use raw config prompts as-is. For projects where prompts are already detailed (300+ chars with lens, lighting, mood). */
+  skipDirector?: boolean;
   /** Additional output formats to render. Clips generated once, Remotion renders each format. */
   outputFormats?: VideoFormat[];
   /** Mood board image URLs. Downloads as style/location/product/model references before generation.
