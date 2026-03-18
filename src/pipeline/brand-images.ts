@@ -123,7 +123,6 @@ async function findReferenceImages(
       'product.jpg', 'product.jpeg', 'product.png',
       'subject.jpg', 'subject.jpeg', 'subject.png',
       'style.jpg', 'style.jpeg', 'style.png',
-      'location.jpg', 'location.jpeg', 'location.png',
     ];
     for (const name of legacyCandidates) {
       const p = path.join(refDir, name);
@@ -190,7 +189,7 @@ async function generateBrandImage(
     const parts: Array<TextPart | InlineDataPart> = [];
 
     // Include reference images with INTERLEAVED labels — model sheets first, then model, product, style, location
-    const typeSortOrder: Record<string, number> = { model: 0, product: 1, style: 2, location: 3 };
+    const typeSortOrder: Record<string, number> = { model: 0, product: 1, style: 2 };
     const sortedRefs = [...referenceImagePaths].sort((a, b) => {
       const aBase = path.basename(a, path.extname(a));
       const bBase = path.basename(b, path.extname(b));
@@ -227,7 +226,7 @@ async function generateBrandImage(
       } else if (basename.startsWith('style')) {
         parts.push({ text: `[STYLE REFERENCE — "${basename}". Match this visual mood and aesthetic.]` });
       } else if (basename.startsWith('location')) {
-        parts.push({ text: `[LOCATION REFERENCE — "${basename}". Use this environment/background.]` });
+        parts.push({ text: `[LOCATION/ENVIRONMENT REFERENCE — "${basename}". Match this environment, setting, and architectural context.]` });
       } else if (basename.startsWith('videoref')) {
         parts.push({ text: `[VIDEO STYLE REFERENCE — "${basename}". This frame is from a reference video. Match its visual style, lighting, color grade, and composition.]` });
       }
@@ -398,8 +397,11 @@ export async function generateBrandImages(
   // Split refs by type for QA comparison
   const modelRefPaths = effectiveRefs.filter((p) => path.basename(p).startsWith('model'));
   const productRefPaths = effectiveRefs.filter((p) => path.basename(p).startsWith('product'));
-  const styleRefPaths = effectiveRefs.filter((p) => path.basename(p).startsWith('style'));
-  const locationRefPaths = effectiveRefs.filter((p) => path.basename(p).startsWith('location'));
+  const styleRefPaths = effectiveRefs.filter((p) => {
+    const base = path.basename(p);
+    return base.startsWith('style') || base.startsWith('location');
+  });
+
 
   const brandContext = await loadBrandContext(projectsRoot, projectName);
   const qaResults: ImageQAResult[] = [];
@@ -497,7 +499,7 @@ export async function generateBrandImages(
       // QA evaluation
       if (result) {
         const sceneLabel = multiClip ? `${clipIndex}-${format}` : format;
-        const qa = await evaluateImage(result, modelRefPaths, productRefPaths, sceneLabel, styleRefPaths, locationRefPaths, clipPrompt);
+        const qa = await evaluateImage(result, modelRefPaths, productRefPaths, sceneLabel, styleRefPaths, clipPrompt, products, brand);
         if (qa) qaResults.push(qa);
       }
 

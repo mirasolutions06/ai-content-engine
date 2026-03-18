@@ -476,7 +476,6 @@ export async function runDirector(
     { path: assets.styleReference ?? '', label: 'STYLE REFERENCE' },
     { path: assets.subjectReference ?? '', label: 'SUBJECT REFERENCE' },
     { path: assets.modelReference ?? '', label: 'MODEL REFERENCE' },
-    { path: assets.locationReference ?? '', label: 'LOCATION REFERENCE' },
   ];
 
   for (const ref of referenceImages) {

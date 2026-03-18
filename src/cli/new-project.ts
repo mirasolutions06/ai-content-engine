@@ -127,7 +127,6 @@ Project structure:
   ├── config.json          ← edit your brief here
   ├── product.jpg          ← drop product/subject photo here (optional)
   ├── style.jpg            ← visual mood reference (optional)
-  ├── location.jpg         ← background/environment reference (optional)
   ├── music.mp3            ← background music (optional)
   ├── brand/
   │   ├── brand.json       ← edit brand colors

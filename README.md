@@ -92,7 +92,6 @@ Drop these in `projects/your-project/`:
 | `model.jpg` | Person/face to feature with the product | No |
 | `model-1.jpg`, `model-2.jpg` | Multiple photos of the same person | No |
 | `style.jpg` | Visual mood reference — aesthetic you want to match | No |
-| `location.jpg` | Background/environment reference | No |
 
 - Filenames are exact — `product.jpg`, not `my-product-photo.jpg`
 - Numbered variants (`product-1.jpg`, `model-2.jpg`) let you provide multiple angles
@@ -308,7 +307,6 @@ projects/your-project/
 ├── model.jpg                ← person/face reference
 ├── model-1.jpg              ← additional model photos
 ├── style.jpg                ← visual mood reference
-├── location.jpg             ← environment reference
 ├── music.mp3                ← background music
 ├── brand/
 │   ├── brand.json           ← brand colors { primary, secondary, accent }

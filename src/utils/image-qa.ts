@@ -56,8 +56,9 @@ export async function evaluateImage(
   productRefPaths: string[],
   sceneLabel: string,
   styleRefPaths: string[] = [],
-  locationRefPaths: string[] = [],
   sceneIntent?: string,
+  productDescriptions?: string[],
+  brandName?: string,
 ): Promise<ImageQAResult | null> {
   const apiKey = process.env['ANTHROPIC_API_KEY'];
   if (!apiKey) return null;
@@ -99,16 +100,7 @@ export async function evaluateImage(
       }
     }
 
-    // Add location references — gives QA context about intended environment
-    for (const refPath of locationRefPaths) {
-      const encoded = await encodeImage(refPath);
-      if (encoded) {
-        contentParts.push(
-          { type: 'text', text: `[LOCATION REFERENCE — "${path.basename(refPath)}" — this shows the intended setting/environment]` },
-          encoded,
-        );
-      }
-    }
+
 
     // Add the generated image
     const generatedEncoded = await encodeImage(generatedImagePath);
@@ -119,11 +111,14 @@ export async function evaluateImage(
       generatedEncoded,
     );
 
-    const hasLifestyleContext = styleRefPaths.length > 0 || locationRefPaths.length > 0;
+    const hasLifestyleContext = styleRefPaths.length > 0;
     const intentContext = sceneIntent ? `\n\nSCENE INTENT: "${sceneIntent}" — Judge whether the image successfully delivers on this creative brief. Detail shots, close-ups, and partial views are intentional when described in the intent.` : '';
+    const productContext = (productDescriptions && productDescriptions.length > 0 && brandName)
+      ? `\n\nIMPORTANT — PRODUCT REFERENCE CONTEXT: The product reference images are used for PACKAGING SHAPE and FORM guidance only. The brand being photographed is "${brandName}". The generated products should match these descriptions: ${productDescriptions.join('; ')}. Judge productAccuracy on shape, material, and form similarity to the references — NOT on brand labeling. The generated products correctly show "${brandName}" branding, which will differ from whatever brand appears on the reference packaging photos.`
+      : '';
     contentParts.push({
       type: 'text',
-      text: `Score this generated image against the reference images above.${intentContext} ${modelRefPaths.length === 0 ? 'No model reference provided — score modelAccuracy as 5.' : ''} ${productRefPaths.length === 0 ? 'No product reference provided — score productAccuracy as 5.' : ''} ${hasLifestyleContext ? 'Style/location references are provided — this is editorial/lifestyle photography. Outdoor and environmental settings are intentional and expected.' : ''}`,
+      text: `Score this generated image against the reference images above.${intentContext}${productContext} ${modelRefPaths.length === 0 ? 'No model reference provided — score modelAccuracy as 5.' : ''} ${productRefPaths.length === 0 ? 'No product reference provided — score productAccuracy as 5.' : ''} ${hasLifestyleContext ? 'Style/location references are provided — this is editorial/lifestyle photography. Outdoor and environmental settings are intentional and expected.' : ''}`,
     });
 
     const response = await retryWithBackoff(

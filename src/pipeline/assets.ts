@@ -13,7 +13,7 @@ import { logger } from '../utils/logger.js';
  *   ├── product.jpg        ← subject/product (supports product-1.jpg, product-2.jpg for multiple angles)
  *   ├── model.jpg           ← person/face reference (supports model-1.jpg, model-2.jpg)
  *   ├── style.jpg           ← visual style/mood reference
- *   ├── location.jpg        ← background/environment reference
+
  *   ├── music.mp3           ← background music
  *   ├── brand/
  *   │   ├── brand.json      ← brand colors
@@ -47,7 +47,6 @@ export class AssetLoader {
       styleReference,
       subjectReference,
       modelReference,
-      locationReference,
       backgroundMusic,
     ] = await Promise.all([
       this.loadStoryboardFrames(),
@@ -58,7 +57,6 @@ export class AssetLoader {
       this.loadOptionalMulti(['style.jpg', 'style.png', 'assets/reference/style.jpg', 'assets/reference/style.png'], 'style reference'),
       this.loadOptionalMulti(['product.jpg', 'product-1.jpg', 'product.png', 'product-1.png', 'assets/reference/subject.jpg', 'assets/reference/subject.png'], 'subject reference'),
       this.loadOptionalMulti(['model.jpg', 'model-1.jpg', 'model.png', 'model-1.png'], 'model reference'),
-      this.loadOptionalMulti(['location.jpg', 'location.png', 'assets/reference/location.jpg', 'assets/reference/location.png'], 'location reference'),
       this.loadOptionalMulti(['music.mp3', 'assets/audio/music.mp3'], 'background music'),
     ]);
 
@@ -73,7 +71,6 @@ export class AssetLoader {
     if (styleReference !== undefined) assets.styleReference = styleReference;
     if (subjectReference !== undefined) assets.subjectReference = subjectReference;
     if (modelReference !== undefined) assets.modelReference = modelReference;
-    if (locationReference !== undefined) assets.locationReference = locationReference;
     if (backgroundMusic !== undefined) assets.backgroundMusic = backgroundMusic;
 
     return assets;

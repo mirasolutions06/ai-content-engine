@@ -17,7 +17,7 @@ const REF_EVAL_MODEL = 'claude-haiku-4-5-20251001';
  */
 async function evaluateAutoRef(
   imagePath: string,
-  refType: 'style' | 'location',
+  refType: 'style',
   description: string,
   costTracker: CostTracker,
 ): Promise<boolean> {
@@ -197,13 +197,13 @@ async function generateColorsFromDescription(description: string): Promise<Brand
   }
 }
 
-// ── Style / Location reference via Gemini image generation ───────────────────
+// ── Style reference via Gemini image generation ─────────────────────────────
 
 async function generateReferenceImage(
   prompt: string,
   outputPath: string,
   label: string,
-): Promise<boolean> {
+): Promise<string | false> {
   const apiKey = process.env['GEMINI_API_KEY'];
   if (!apiKey) {
     logger.warn(`Asset sourcer: GEMINI_API_KEY not set — skipping ${label} generation.`);
@@ -239,15 +239,13 @@ async function generateReferenceImage(
 
     // Save with correct extension matching actual image format
     const isJpeg = imageMime.includes('jpeg') || imageMime.includes('jpg');
+    let actualPath = outputPath;
     if (isJpeg && outputPath.endsWith('.png')) {
-      const jpgPath = outputPath.replace('.png', '.jpg');
-      await fs.writeFile(jpgPath, Buffer.from(imageData, 'base64'));
-      logger.success(`Asset sourcer: ${label} saved to ${path.basename(jpgPath)}`);
-    } else {
-      await fs.writeFile(outputPath, Buffer.from(imageData, 'base64'));
-      logger.success(`Asset sourcer: ${label} saved to ${path.basename(outputPath)}`);
+      actualPath = outputPath.replace('.png', '.jpg');
     }
-    return true;
+    await fs.writeFile(actualPath, Buffer.from(imageData, 'base64'));
+    logger.success(`Asset sourcer: ${label} saved to ${path.basename(actualPath)}`);
+    return actualPath;
   } catch (err) {
     logger.warn(`Asset sourcer: ${label} generation failed: ${String(err)}`);
     return false;
@@ -398,25 +396,7 @@ async function sourceMusic(
   }
 }
 
-// ── Location extraction from clip prompts ────────────────────────────────────
 
-function extractLocationFromPrompts(config: VideoConfig): string | null {
-  const locationPatterns = /\b(?:in|at|on|inside|outside|overlooking|surrounded by|against|through)\s+(?:a|an|the)?\s*([^,.]+)/i;
-
-  let bestMatch: string | null = null;
-  let bestLength = 0;
-
-  for (const clip of config.clips) {
-    if (!clip.prompt) continue;
-    const match = locationPatterns.exec(clip.prompt);
-    if (match?.[1] && match[1].length > bestLength) {
-      bestMatch = match[1].trim();
-      bestLength = bestMatch.length;
-    }
-  }
-
-  return bestMatch;
-}
 
 // ── Main export ──────────────────────────────────────────────────────────────
 
@@ -512,7 +492,7 @@ async function importMoodBoard(
   let files: string[] = [];
   try { files = await fs.readdir(projectDir); } catch { /* empty */ }
 
-  const typeCounts: Record<string, number> = { style: 0, location: 0, product: 0, model: 0 };
+  const typeCounts: Record<string, number> = { style: 0, product: 0, model: 0 };
   for (const type of Object.keys(typeCounts)) {
     const pattern = new RegExp(`^${type}(?:-(\\d+))?\\.(?:jpg|jpeg|png)$`, 'i');
     for (const f of files) {
@@ -768,8 +748,7 @@ export async function sourceAssets(
     colorSource: 'skipped',
     styleReferenceSourced: false,
     styleSource: 'skipped',
-    locationReferenceSourced: false,
-    locationSource: 'skipped',
+
     musicSourced: false,
     musicSource: 'skipped',
     estimatedCost: 0,
@@ -888,12 +867,13 @@ export async function sourceAssets(
           'This should be ONE compelling photograph, NOT a mood board, NOT a collage, NOT multiple images. ' +
           'Professional editorial photography with natural lighting and authentic textures. No text, no logos.';
 
-        sourced = await generateReferenceImage(prompt, stylePath, 'style reference');
-        if (sourced) {
+        const savedStyle = await generateReferenceImage(prompt, stylePath, 'style reference');
+        if (savedStyle) {
+          sourced = true;
           result.styleSource = 'gemini';
           costTracker.logStep('gemini-style-ref', false);
           // Evaluate quality — delete if collage or low quality
-          const accepted = await evaluateAutoRef(stylePath, 'style', styleDesc, costTracker);
+          const accepted = await evaluateAutoRef(savedStyle, 'style', styleDesc, costTracker);
           if (!accepted) sourced = false;
         }
       }
@@ -902,64 +882,7 @@ export async function sourceAssets(
     }
   }
 
-  // ── 3. Location Reference ───────────────────────────────────────────────────
-  const locationPath = path.join(assetsDir, 'location.png');
-  const locationPathJpg = path.join(assetsDir, 'location.jpg');
 
-  if (skipAutoRefs.includes('location')) {
-    logger.skip('Asset sourcer: location reference skipped via config.skipAutoRefs.');
-    result.locationSource = 'skipped';
-  } else if (await fs.pathExists(locationPath) || await fs.pathExists(locationPathJpg)) {
-    logger.skip('Asset sourcer: location reference already exists — skipping.');
-    result.locationReferenceSourced = true;
-    result.locationSource = 'existing';
-  } else {
-    const locationDesc = extractLocationFromPrompts(config);
-
-    if (!locationDesc) {
-      logger.info('Asset sourcer: no distinct location found in scene prompts — skipping location reference.');
-    } else if (dryRun) {
-      if (process.env['PEXELS_API_KEY'] || process.env['UNSPLASH_ACCESS_KEY']) {
-        const source = process.env['PEXELS_API_KEY'] ? 'Pexels' : 'Unsplash';
-        logger.info(`[DRY RUN] Would search ${source} for location reference: "${locationDesc}"`);
-      } else {
-        logger.info(`[DRY RUN] Would generate location reference via Gemini (~$0.05)`);
-        result.estimatedCost += 0.05;
-      }
-    } else {
-      let sourced = false;
-
-      // Try Pexels
-      if (!sourced && process.env['PEXELS_API_KEY']) {
-        sourced = await searchPexelsImage(`${locationDesc} photography`, locationPath);
-        if (sourced) result.locationSource = 'pexels';
-      }
-
-      // Try Unsplash
-      if (!sourced && process.env['UNSPLASH_ACCESS_KEY']) {
-        sourced = await searchUnsplashImage(`${locationDesc} photography`, locationPath);
-        if (sourced) result.locationSource = 'unsplash';
-      }
-
-      // Fallback: Gemini
-      if (!sourced) {
-        const prompt =
-          `Generate a photographic reference of this setting: ${locationDesc}. ` +
-          'Photorealistic, professional photography, establishing shot feel. No people, no text.';
-
-        sourced = await generateReferenceImage(prompt, locationPath, 'location reference');
-        if (sourced) {
-          result.locationSource = 'gemini';
-          costTracker.logStep('gemini-location-ref', false);
-          // Evaluate quality — delete if collage or low quality
-          const accepted = await evaluateAutoRef(locationPath, 'location', locationDesc, costTracker);
-          if (!accepted) sourced = false;
-        }
-      }
-
-      result.locationReferenceSourced = sourced;
-    }
-  }
 
   // ── 4. Background Music ─────────────────────────────────────────────────────
   const musicPath = path.join(assetsDir, 'music.mp3');
@@ -989,7 +912,6 @@ export async function sourceAssets(
     `Asset sourcing complete: ` +
     `colors=${result.colorSource}, ` +
     `style=${result.styleSource}, ` +
-    `location=${result.locationSource}, ` +
     `music=${result.musicSource}`,
   );
 

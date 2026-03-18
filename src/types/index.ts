@@ -16,7 +16,7 @@ export type VideoProvider = 'kling-v2.1' | 'kling-v3' | 'veo-3.1' | 'veo-3.1-fas
 export type ImageProvider = 'gemini' | 'gpt-image';
 export type ClipOutputType = 'image' | 'video' | 'animation';
 export type ImageSource = 'generate' | 'original' | 'edit';
-export type MoodBoardEntry = string | { url: string; type?: 'style' | 'location' | 'product' | 'model' };
+export type MoodBoardEntry = string | { url: string; type?: 'style' | 'product' | 'model' };
 
 // ─── Brand Shot Types (for brand-images mode) ───────────────────────────────
 
@@ -144,13 +144,13 @@ export interface VideoConfig {
   directorModel?: 'claude-opus-4-6' | 'claude-sonnet-4-6';
   /** Explicit product list. Only these products should appear in generated images. Prevents Gemini from inventing products mentioned in the brief but not in references. */
   products?: string[];
-  /** Skip auto-sourcing style and/or location references. Use when auto-generated refs add noise (e.g. studio skincare campaigns). */
-  skipAutoRefs?: ('style' | 'location')[];
+  /** Skip auto-sourcing style references. Use when auto-generated refs add noise (e.g. studio skincare campaigns). */
+  skipAutoRefs?: ('style')[];
   /** Skip Director enrichment — use raw config prompts as-is. For projects where prompts are already detailed (300+ chars with lens, lighting, mood). */
   skipDirector?: boolean;
   /** Additional output formats to render. Clips generated once, Remotion renders each format. */
   outputFormats?: VideoFormat[];
-  /** Mood board image URLs. Downloads as style/location/product/model references before generation.
+  /** Mood board image URLs. Downloads as style/product/model references before generation.
    *  Strings default to 'style' type. Objects allow explicit categorization.
    *  Supports direct image URLs and web pages with og:image meta tags (Pinterest pins, etc.). */
   moodBoard?: MoodBoardEntry[];
@@ -224,7 +224,7 @@ export interface ProjectAssets {
   styleReference?: string;
   subjectReference?: string;
   modelReference?: string;
-  locationReference?: string;
+
   storyboardFrames: StoryboardFrame[];
   backgroundMusic?: string;
 }
@@ -393,8 +393,7 @@ export interface AssetSourcingResult {
   colorSource: 'website' | 'image' | 'generated' | 'existing' | 'skipped';
   styleReferenceSourced: boolean;
   styleSource: 'gemini' | 'pexels' | 'unsplash' | 'existing' | 'skipped';
-  locationReferenceSourced: boolean;
-  locationSource: 'gemini' | 'pexels' | 'unsplash' | 'existing' | 'skipped';
+
   musicSourced: boolean;
   musicSource: 'pixabay' | 'existing' | 'skipped';
   estimatedCost: number;
